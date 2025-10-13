@@ -1,0 +1,19 @@
+name: Flutter CI
+on:
+  push: { branches: [ "main" ] }
+  pull_request: { branches: [ "main" ] }
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: flutter analyze
+      - run: flutter test --no-pub
+      - run: flutter build apk --debug
