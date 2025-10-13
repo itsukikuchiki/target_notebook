@@ -21,18 +21,20 @@ class SubGoal extends HiveObject {
     this.description,
     this.orderIndex = 0,
   });
-}
 
-Map<String, dynamic> toMap() => {
-  'goalId': goalId,
-  'title': title,
-  'description': description,
-  'orderIndex': orderIndex,
-};
-static SubGoal fromMap(Map<String, dynamic> m) => SubGoal(
-  goalId: m['goalId'] as int,
-  title: m['title'] as String,
-  description: m['description'] as String?,
-  orderIndex: m['orderIndex'] as int? ?? 0,
-);
+  // ----- JSON -----
+  Map<String, dynamic> toMap() => {
+        'goalId': goalId,
+        'title': title,
+        'description': description,
+        'orderIndex': orderIndex,
+      };
+
+  static SubGoal fromMap(Map<String, dynamic> m) => SubGoal(
+        goalId: m['goalId'] as int,
+        title: m['title'] as String,
+        description: m['description'] as String?,
+        orderIndex: (m['orderIndex'] as int?) ?? 0,
+      );
+}
 

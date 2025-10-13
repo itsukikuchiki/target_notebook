@@ -31,22 +31,28 @@ class Goal extends HiveObject {
     List<KPI>? kpis,
   })  : createdAt = createdAt ?? DateTime.now(),
         kpis = kpis ?? [];
-}
 
-Map<String, dynamic> toMap() => {
-  'title': title,
-  'description': description,
-  'priority': priority,
-  'createdAt': createdAt.toIso8601String(),
-  'dueDate': dueDate?.toIso8601String(),
-  'kpis': kpis.map((e) => e.toMap()).toList(),
-};
-static Goal fromMap(Map<String, dynamic> m) => Goal(
-  title: m['title'] as String,
-  description: m['description'] as String?,
-  priority: m['priority'] as int? ?? 3,
-  createdAt: DateTime.parse(m['createdAt'] as String),
-  dueDate: (m['dueDate'] as String?) != null ? DateTime.parse(m['dueDate'] as String) : null,
-  kpis: (m['kpis'] as List<dynamic>? ?? []).map((e) => KPI.fromMap(Map<String, dynamic>.from(e as Map))).toList(),
-);
+  // ----- JSON -----
+  Map<String, dynamic> toMap() => {
+        'title': title,
+        'description': description,
+        'priority': priority,
+        'createdAt': createdAt.toIso8601String(),
+        'dueDate': dueDate?.toIso8601String(),
+        'kpis': kpis.map((e) => e.toMap()).toList(),
+      };
+
+  static Goal fromMap(Map<String, dynamic> m) => Goal(
+        title: m['title'] as String,
+        description: m['description'] as String?,
+        priority: (m['priority'] as int?) ?? 3,
+        createdAt: DateTime.parse(m['createdAt'] as String),
+        dueDate: (m['dueDate'] as String?) != null
+            ? DateTime.parse(m['dueDate'] as String)
+            : null,
+        kpis: (m['kpis'] as List<dynamic>? ?? [])
+            .map((e) => KPI.fromMap(Map<String, dynamic>.from(e as Map)))
+            .toList(),
+      );
+}
 

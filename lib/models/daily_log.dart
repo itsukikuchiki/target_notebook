@@ -25,20 +25,22 @@ class DailyLog extends HiveObject {
     this.taskId,
     this.minutes = 0,
   }) : date = date ?? DateTime.now();
-}
 
-Map<String, dynamic> toMap() => {
-  'date': date.toIso8601String(),
-  'content': content,
-  'goalId': goalId,
-  'taskId': taskId,
-  'minutes': minutes,
-};
-static DailyLog fromMap(Map<String, dynamic> m) => DailyLog(
-  date: DateTime.parse(m['date'] as String),
-  content: m['content'] as String,
-  goalId: m['goalId'] as int?,
-  taskId: m['taskId'] as int?,
-  minutes: m['minutes'] as int? ?? 0,
-);
+  // ----- JSON -----
+  Map<String, dynamic> toMap() => {
+        'date': date.toIso8601String(),
+        'content': content,
+        'goalId': goalId,
+        'taskId': taskId,
+        'minutes': minutes,
+      };
+
+  static DailyLog fromMap(Map<String, dynamic> m) => DailyLog(
+        date: DateTime.parse(m['date'] as String),
+        content: m['content'] as String,
+        goalId: m['goalId'] as int?,
+        taskId: m['taskId'] as int?,
+        minutes: (m['minutes'] as int?) ?? 0,
+      );
+}
 
