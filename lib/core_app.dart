@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/hive_init.dart';
-import 'providers/goal_provider.dart';
-import 'providers/task_provider.dart';
+import 'providers/goal_provider.dart' as goals;   // 👈 别名
+import 'providers/task_provider.dart' as tasks;   // 👈 别名
 import 'main_screen.dart';
 
 class CoreApp extends StatelessWidget {
@@ -10,16 +10,16 @@ class CoreApp extends StatelessWidget {
 
   Future<void> _startup(BuildContext context) async {
     await initHive();
-    await context.read<GoalProvider>().init();
-    await context.read<TaskProvider>().init();
+    await context.read<goals.GoalProvider>().init();
+    await context.read<tasks.TaskProvider>().init();
   }
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => GoalProvider()),
-        ChangeNotifierProvider(create: (_) => TaskProvider()),
+        ChangeNotifierProvider(create: (_) => goals.GoalProvider()),
+        ChangeNotifierProvider(create: (_) => tasks.TaskProvider()),
       ],
       child: MaterialApp(
         title: '目標手帳',

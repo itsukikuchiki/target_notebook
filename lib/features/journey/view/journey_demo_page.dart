@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../demo/seed_demo.dart';
-import '../../../providers/goal_provider.dart';
-import '../../../providers/task_provider.dart';
+import '../../../providers/goal_provider.dart' as goals;  // 👈
+import '../../../providers/task_provider.dart' as tasks;  // 👈
 import '../../../models/goal.dart';
 
 class JourneyDemoPage extends StatefulWidget {
@@ -25,22 +25,19 @@ class _JourneyDemoPageState extends State<JourneyDemoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final goals = context.watch<GoalProvider>().goals;
+    final goalList = context.watch<goals.GoalProvider>().goals;
     return Scaffold(
       appBar: AppBar(title: const Text('My Journey · Demo')),
-      body: goals.isEmpty
+      body: goalList.isEmpty
           ? const Center(child: Text('暂无数据，正在准备种子数据…'))
           : ListView.separated(
-              itemCount: goals.length,
+              itemCount: goalList.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (ctx, i) {
-                final g = goals[i];
-                return _GoalTile(g: g);
-              },
+              itemBuilder: (ctx, i) => _GoalTile(g: goalList[i]),
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          final key = await context.read<GoalProvider>().addGoal(
+          final key = await context.read<goals.GoalProvider>().addGoal(
                 Goal(title: '新目标（示例）', description: '点击添加的占位目标', priority: 3),
               );
           if (context.mounted) {
@@ -61,29 +58,17 @@ class _GoalTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final taskProvider = context.watch<TaskProvider>();
-    final tasks = taskProvider.tasksByGoal(g.key as int);
+    final taskProv = context.watch<tasks.TaskProvider>();   // 👈
+    final tasksByGoal = taskProv.tasksByGoal(g.key as int);
     return ExpansionTile(
       title: Text(g.title),
       subtitle: Text(g.description ?? ''),
       children: [
-        if (g.kpis.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Wrap(
-              spacing: 12,
-              children: g.kpis
-                  .map((k) => Chip(
-                        label: Text('${k.name} ${k.currentValue}/${k.targetValue}${k.unit} (${k.period})'),
-                      ))
-                  .toList(),
-            ),
-          ),
-        ...tasks.map((t) => CheckboxListTile(
+        ...tasksByGoal.map((t) => CheckboxListTile(
               title: Text(t.title),
               subtitle: t.note != null ? Text(t.note!) : null,
               value: t.done,
-              onChanged: (_) => taskProvider.toggleDone(t.key as int),
+              onChanged: (_) => taskProv.toggleDone(t.key as int),
             )),
         const SizedBox(height: 8),
       ],

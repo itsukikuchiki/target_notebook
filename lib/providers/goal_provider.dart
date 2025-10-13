@@ -1,29 +1,26 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '../core/hive_init.dart';
-import '../models/task.dart';
+import '../models/goal.dart';
 
-class TaskProvider extends ChangeNotifier {
-  late final Box<Task> _taskBox;
+class GoalProvider extends ChangeNotifier {
+  late final Box<Goal> _goalBox;
 
   Future<void> init() async {
-    _taskBox = Hive.box<Task>(AppBoxes.task);
+    _goalBox = Hive.box<Goal>(AppBoxes.goal);
   }
 
-  List<Task> tasksByGoal(int goalId) =>
-      _taskBox.values.where((t) => t.goalId == goalId).toList();
+  List<Goal> get goals => _goalBox.values.toList()
+    ..sort((a, b) => a.priority.compareTo(b.priority));
 
-  Future<int> addTask(Task t) async {
-    final key = await _taskBox.add(t);
+  Future<int> addGoal(Goal g) async {
+    final key = await _goalBox.add(g);
     notifyListeners();
     return key;
   }
 
-  Future<void> toggleDone(int key) async {
-    final t = _taskBox.get(key);
-    if (t == null) return;
-    t.done = !t.done;
-    await t.save();
+  Future<void> deleteGoal(int key) async {
+    await _goalBox.delete(key);
     notifyListeners();
   }
 }
