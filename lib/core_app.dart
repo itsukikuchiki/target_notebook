@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'main_screen.dart'; // ✅ 新增导入
 
 class CoreApp extends StatelessWidget {
   const CoreApp({super.key});
@@ -11,7 +12,8 @@ class CoreApp extends StatelessWidget {
         useMaterial3: true,
         colorSchemeSeed: Colors.indigo,
       ),
-      home: const MainScreen(),
+      home: const MainScreen(), // 现在能解析到
     );
   }
 }
+
