@@ -27,3 +27,18 @@ class KPI extends HiveObject {
   });
 }
 
+Map<String, dynamic> toMap() => {
+  'name': name,
+  'targetValue': targetValue,
+  'currentValue': currentValue,
+  'unit': unit,
+  'period': period,
+};
+static KPI fromMap(Map<String, dynamic> m) => KPI(
+  name: m['name'] as String,
+  targetValue: (m['targetValue'] as num).toDouble(),
+  currentValue: (m['currentValue'] as num).toDouble(),
+  unit: m['unit'] as String,
+  period: m['period'] as String,
+);
+

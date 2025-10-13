@@ -35,3 +35,22 @@ class Task extends HiveObject {
   });
 }
 
+Map<String, dynamic> toMap() => {
+  'goalId': goalId,
+  'subGoalId': subGoalId,
+  'title': title,
+  'note': note,
+  'startAt': startAt?.toIso8601String(),
+  'endAt': endAt?.toIso8601String(),
+  'done': done,
+};
+static Task fromMap(Map<String, dynamic> m) => Task(
+  goalId: m['goalId'] as int?,
+  subGoalId: m['subGoalId'] as int?,
+  title: m['title'] as String,
+  note: m['note'] as String?,
+  startAt: (m['startAt'] as String?) != null ? DateTime.parse(m['startAt'] as String) : null,
+  endAt: (m['endAt'] as String?) != null ? DateTime.parse(m['endAt'] as String) : null,
+  done: m['done'] as bool? ?? false,
+);
+
