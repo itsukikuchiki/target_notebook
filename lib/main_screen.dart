@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/journey/view/journey_demo_page.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -10,7 +11,7 @@ class _MainScreenState extends State<MainScreen> {
   int _index = 0;
 
   final _pages = const [
-    _JourneyPage(),
+    JourneyDemoPage(), // ← 用 Demo 页替换 _JourneyPage()
     _DailyPage(),
     _InsightPage(),
     _ReflectionPage(),
