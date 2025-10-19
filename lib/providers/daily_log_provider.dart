@@ -30,10 +30,12 @@ class DailyLogProvider extends ChangeNotifier {
       if (l.goalId != null) {
         final g = _goalBox.get(l.goalId);
         if (g != null) {
+          // 关键：用“日志的日期”作为参考周，这样测试与实际都可复现
           final newKpis = refreshKpisForGoal(
             currentKpis: g.kpis,
             allLogs: _logBox.values.toList(),
             goalId: l.goalId!,
+            now: l.date, // ← 新增
           );
           g.kpis = newKpis;
           await g.save();
