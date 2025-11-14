@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../adapters/dailylog_adapter.dart';
 
@@ -8,44 +7,24 @@ class ReflectionPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reflections = context.select(
-      (DailyLogAdapter a) => a.latestReflections(),
-    );
+    final adapter = context.watch<DailyLogAdapter>();
+    final items = adapter.latestReflections(limit: 20);
 
-    if (reflections.isEmpty) {
-      return const Center(
-        child: Text(
-          '还没有反思日记，试着在 Daily 页面写下一条吧！',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemBuilder: (ctx, i) {
-        final r = reflections[i];
-        return Card(
-          elevation: 0,
-          color: Theme.of(context)
-              .colorScheme
-              .surfaceVariant
-              .withOpacity(0.5),
-          child: ListTile(
-            title: Text(
-              r.content,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              DateFormat('yyyy-MM-dd (EEE)').format(r.date),
-            ),
-            leading: const Icon(Icons.bookmark_border),
-          ),
-        );
-      },
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemCount: reflections.length,
+    return Scaffold(
+      appBar: AppBar(title: const Text('Reflection')),
+      body: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        itemBuilder: (_, i) {
+          final r = items[i];
+          return ListTile(
+            title: Text(r.content.isEmpty ? '(无内容)' : r.content),
+            subtitle: Text('${r.date.toLocal()} • ${r.minutes} 分钟'),
+            leading: const Icon(Icons.notes),
+          );
+        },
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemCount: items.length,
+      ),
     );
   }
 }

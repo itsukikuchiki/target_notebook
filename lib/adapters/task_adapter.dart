@@ -1,43 +1,73 @@
 import 'package:flutter/foundation.dart';
-import '../providers/task_provider.dart' as phase1;
-import 'package:flutter/material.dart'; // for UniqueKey as fallback
+import '../providers/task_provider.dart';
+import '../models/task.dart';
 
+/// UI 层使用的轻量 VM（避免直接暴露 Hive 对象）
 class TaskVM {
-  final int id;           // Hive key
+  final int id;
   final String title;
-  final DateTime date;    // from startAt or endAt
+  final DateTime date;
   final bool done;
-  const TaskVM(this.id, this.title, this.date, this.done);
+  final int? goalId;
+  final bool isTodayTop3;
+
+  const TaskVM(
+    this.id,
+    this.title,
+    this.date,
+    this.done, {
+    this.goalId,
+    this.isTodayTop3 = false,
+  });
 }
 
-class TaskAdapter extends ChangeNotifier {
-  final phase1.TaskProvider src;
-  TaskAdapter(this.src) { src.addListener(notifyListeners); }
+class TaskAdapter with ChangeNotifier {
+  final TaskProvider src;
+  TaskAdapter(this.src);
 
   List<TaskVM> tasksForDate(DateTime day) {
-    final list = src.tasksForDay(day);
+    final list = src.tasksForDate(day);
     return list.map((t) {
-      final id = _safeKey(t) ?? UniqueKey().hashCode;
-      final date = _firstNonNullDate(t) ?? day;
-      return TaskVM(id, t.title, date, t.done);
+      final d = t.startAt ?? t.endAt ?? DateTime.now();
+      return TaskVM(
+        t.key as int,
+        t.title,
+        d,
+        t.done,
+        goalId: t.goalId,
+        isTodayTop3: t.isTodayTop3,
+      );
     }).toList();
   }
 
-  Future<void> toggleTaskDone(int taskId, bool _) async {
-    // Phase1 只有 toggleDone(key)，不区分 true/false；UI 会刷新为最终状态
-    await src.toggleDone(taskId);
+  List<TaskVM> top3ForDate(DateTime day) {
+    final all = src.top3ForDate(day);
+    return all.map((t) {
+      final d = t.startAt ?? t.endAt ?? DateTime.now();
+      return TaskVM(
+        t.key as int,
+        t.title,
+        d,
+        t.done,
+        goalId: t.goalId,
+        isTodayTop3: t.isTodayTop3,
+      );
+    }).toList();
+  }
+
+  Future<void> toggleTaskDone(int taskId, bool value) async {
+    await src.toggleTaskDone(taskId, value);
     notifyListeners();
   }
-}
 
-int? _safeKey(Object o) {
-  try { final k = (o as dynamic).key; if (k is int) return k; } catch (_) {}
-  return null;
-}
+  Future<void> setPinnedTop3(int taskId, bool pinned) async {
+    await src.setPinnedTop3(taskId, pinned);
+    notifyListeners();
+  }
 
-DateTime? _firstNonNullDate(Object t) {
-  try { final sa = (t as dynamic).startAt; if (sa is DateTime) return sa; } catch (_) {}
-  try { final ea = (t as dynamic).endAt;   if (ea is DateTime) return ea; } catch (_) {}
-  return null;
+  void setTop3Order(DateTime day, List<int> orderedTaskKeys) {
+    src.setTop3Order(day, orderedTaskKeys);
+    notifyListeners();
+  }
 }
 

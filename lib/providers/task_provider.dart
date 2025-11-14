@@ -1,24 +1,36 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart'; // 确保有这一行，提供 DateUtils
+
 import 'package:hive/hive.dart';
 import '../core/hive_init.dart';
 import '../core/result.dart';
 import '../models/task.dart';
-import '../common/utils/date_utils.dart';
+import '../common/utils/date_utils.dart' as du; // 避免命名冲突
+import '../utils/hive_initializer.dart';
 
 class TaskProvider extends ChangeNotifier {
-  late final Box<Task> _taskBox;
+  late Box<Task> _taskBox;
 
-  Future<void> init() async {
-    _taskBox = Hive.box<Task>(AppBoxes.task);
+  // 记录每天 Top3 的拖拽顺序（key 列表）
+  final Map<DateTime, List<int>> _top3OrderByDay = {};
+
+  /// 初始化
+  /// - 可注入 [taskBox]（测试方便）
+  /// - 默认使用 [AppBoxes.task]
+  Future<void> init({Box<Task>? taskBox, String boxName = AppBoxes.task}) async {
+    _taskBox = taskBox ?? await ensureTypedBox<Task>(boxName);
   }
 
+  /// 某目标下任务
   List<Task> tasksByGoal(int goalId) =>
       _taskBox.values.where((t) => t.goalId == goalId).toList();
 
-  List<Task> tasksForDay(DateTime day) {
-    final s = startOfDay(day);
-    final e = endOfDay(day);
+  /// 某日期任务（未完成优先）
+  List<Task> tasksForDate(DateTime day) {
+    final s = du.startOfDay(day);
+    final e = du.endOfDay(day);
+
     final list = _taskBox.values.where((t) {
       final sa = t.startAt;
       final ea = t.endAt;
@@ -26,11 +38,59 @@ class TaskProvider extends ChangeNotifier {
       final eaIn = ea != null && !ea.isBefore(s) && !ea.isAfter(e);
       return saIn || (sa == null && eaIn);
     }).toList();
-    list.sort((a, b) => (a.done ? 1 : 0).compareTo(b.done ? 1 : 0));
+
+    list.sort((a, b) {
+      if (a.done != b.done) return a.done ? 1 : -1; // 未完成在前
+      final sa = a.startAt ?? DateTime(2100);
+      final sb = b.startAt ?? DateTime(2100);
+      return sa.compareTo(sb);
+    });
     return list;
   }
 
-  // CRUD
+  /// 今日三件事（固定优先，不足补未完成）+ 应用拖拽序
+  List<Task> top3ForDate(DateTime day) {
+    final s = du.startOfDay(day);
+    final e = du.endOfDay(day);
+    final all = _taskBox.values.where((t) {
+      final sa = t.startAt;
+      final ea = t.endAt;
+      final saIn = sa != null && !sa.isBefore(s) && !sa.isAfter(e);
+      final eaIn = ea != null && !ea.isBefore(s) && !ea.isAfter(e);
+      return saIn || (sa == null && eaIn);
+    }).toList();
+
+    final pinned = all.where((t) => t.isTodayTop3 && !t.done).toList();
+    final rest = all.where((t) => !t.isTodayTop3 && !t.done).toList();
+    final picked = [...pinned, ...rest].take(3).toList();
+
+    final order = _top3OrderByDay[DateUtils.dateOnly(day)];
+    if (order == null) return picked;
+
+    picked.sort((a, b) {
+      final ia = order.indexOf(a.key as int);
+      final ib = order.indexOf(b.key as int);
+      return (ia == -1 ? 999 : ia).compareTo(ib == -1 ? 999 : ib);
+    });
+    return picked;
+  }
+
+  /// 设定任务固定为「今日三件事」
+  Future<void> setPinnedTop3(int taskKey, bool pinned) async {
+    final t = _taskBox.get(taskKey);
+    if (t == null) return;
+    t.isTodayTop3 = pinned;
+    await t.save();
+    notifyListeners();
+  }
+
+  /// 拖拽后记录排序
+  void setTop3Order(DateTime day, List<int> orderedTaskKeys) {
+    _top3OrderByDay[DateUtils.dateOnly(day)] = List.of(orderedTaskKeys);
+    notifyListeners();
+  }
+
+  /// 新建任务
   Future<Result<int>> addTask(Task t) async {
     try {
       final key = await _taskBox.add(t);
@@ -41,6 +101,7 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+  /// 更新任务
   Future<Result<void>> updateTask(int key, Task patch) async {
     try {
       final t = _taskBox.get(key);
@@ -52,7 +113,8 @@ class TaskProvider extends ChangeNotifier {
         ..subGoalId = patch.subGoalId
         ..startAt = patch.startAt
         ..endAt = patch.endAt
-        ..done = patch.done;
+        ..done = patch.done
+        ..isTodayTop3 = patch.isTodayTop3;
       await t.save();
       notifyListeners();
       return const Success(null);
@@ -61,6 +123,7 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+  /// 删除任务
   Future<Result<void>> deleteTask(int key) async {
     try {
       await _taskBox.delete(key);
@@ -71,23 +134,30 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  Future<int> addQuickTaskToday(String title) async {
+  /// 新建今日任务（默认当天）
+  Future<int> addQuickTaskToday(String title, {int? goalId}) async {
     final now = DateTime.now();
-    final t = Task(title: title.trim().isEmpty ? '今日任务' : title.trim(), startAt: now);
+    final t = Task(
+      title: title.trim().isEmpty ? '今日任务' : title.trim(),
+      goalId: goalId,
+      startAt: now,
+      endAt: now,
+    );
     final key = await _taskBox.add(t);
     notifyListeners();
     return key;
   }
 
-  Future<void> toggleDone(int key) async {
+  /// 切换完成状态
+  Future<void> toggleTaskDone(int key, bool value) async {
     final t = _taskBox.get(key);
     if (t == null) return;
-    t.done = !t.done;
+    t.done = value;
     await t.save();
     notifyListeners();
   }
 
-  // 批量导出/导入
+  /// 导出为 JSON
   String exportAllToJson() {
     final list = _taskBox.keys.map((k) {
       final t = _taskBox.get(k as int)!;
@@ -96,6 +166,7 @@ class TaskProvider extends ChangeNotifier {
     return const JsonEncoder.withIndent('  ').convert(list);
   }
 
+  /// 从 JSON 导入
   Future<Result<int>> importFromJson(String json) async {
     try {
       final decoded = jsonDecode(json) as List<dynamic>;

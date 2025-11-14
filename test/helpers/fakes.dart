@@ -90,11 +90,11 @@ class ReflectionStub implements ui.ReflectionVM {
 class FakeDailyLogAdapter extends ui.DailyLogAdapter {
   FakeDailyLogAdapter() : super(_DummyDailyLogProvider(), _DummyTaskProvider());
 
-  ui.WeeklyStatsVM _weekly =
-      const ui.WeeklyStatsVM({}, 0.0, '本周还没有记录投入时长，开始第一条吧！');
+  ui.WeeklyVM _weekly =
+      const ui.WeeklyVM({}, 0.0, '本周还没有记录投入时长，开始第一条吧！');
   List<ui.ReflectionVM> _refs = const [];
 
-  set weeklySeed(ui.WeeklyStatsVM v) {
+  set weeklySeed(ui.WeeklyVM v) {
     _weekly = v;
     notifyListeners();
   }
@@ -105,10 +105,10 @@ class FakeDailyLogAdapter extends ui.DailyLogAdapter {
   }
 
   @override
-  ui.WeeklyStatsVM weeklyStats() => _weekly;
+  ui.WeeklyVM weeklyStats({DateTime? now}) => _weekly;
 
   @override
-  List<ui.ReflectionVM> latestReflections() => _refs;
+  List<ui.ReflectionVM> latestReflections({int limit = 10}) => _refs;
 }
 
 // ====== Finder 辅助 ======

@@ -3,41 +3,75 @@ import 'package:flutter/material.dart';
 class PlusPanel extends StatelessWidget {
   const PlusPanel({super.key});
 
-  static const addGoal = 'add_goal';
-  static const addSubGoal = 'add_subgoal';
-  static const addTask = 'add_task';
-  static const addDailyLog = 'add_dailylog';
-  static const addReflection = 'add_reflection';
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _SquareButton(
+          icon: Icons.note_add,
+          label: '快速日志',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const _DummyPage(title: 'Quick Log')),
+          ),
+        ),
+        _SquareButton(
+          icon: Icons.timer,
+          label: '计时器',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const _DummyPage(title: 'Timer')),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SquareButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SquareButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final actions = [
-      ('Add Goal', Icons.flag, addGoal),
-      ('Add SubGoal', Icons.subdirectory_arrow_right, addSubGoal),
-      ('Add Task', Icons.task_alt, addTask),
-      ('Add Daily Log', Icons.schedule, addDailyLog),
-      ('Add Reflection', Icons.edit_note, addReflection),
-    ];
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 120,
+        height: 96,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Theme.of(context).colorScheme.surfaceVariant,
+        ),
+        padding: const EdgeInsets.all(12),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('快速添加', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            ...actions.map((a) => ListTile(
-                  leading: Icon(a.$2),
-                  title: Text(a.$1),
-                  onTap: () => Navigator.of(context).pop(a.$3),
-                )),
+            Icon(icon),
             const SizedBox(height: 8),
+            Text(label, style: Theme.of(context).textTheme.bodyMedium),
           ],
         ),
       ),
     );
+  }
+}
+
+class _DummyPage extends StatelessWidget {
+  final String title;
+  const _DummyPage({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(appBar: AppBar(title: Text(title)));
   }
 }
 

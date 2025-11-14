@@ -4,16 +4,16 @@ part 'task.g.dart';
 @HiveType(typeId: 4)
 class Task extends HiveObject {
   @HiveField(0)
-  int? goalId;
-
-  @HiveField(1)
-  int? subGoalId;
-
-  @HiveField(2)
   String title;
 
-  @HiveField(3)
+  @HiveField(1)
   String? note;
+
+  @HiveField(2)
+  int? goalId;
+
+  @HiveField(3)
+  int? subGoalId;
 
   @HiveField(4)
   DateTime? startAt;
@@ -24,39 +24,42 @@ class Task extends HiveObject {
   @HiveField(6)
   bool done;
 
+  /// 今日三件事（Pinned）
+  @HiveField(7)
+  bool isTodayTop3;
+
   Task({
-    this.goalId,
-    this.subGoalId,
     required this.title,
     this.note,
+    this.goalId,
+    this.subGoalId,
     this.startAt,
     this.endAt,
     this.done = false,
+    this.isTodayTop3 = false,
   });
 
-  // ----- JSON -----
+  // === JSON 序列化（用于导入导出） ===
   Map<String, dynamic> toMap() => {
-        'goalId': goalId,
-        'subGoalId': subGoalId,
         'title': title,
         'note': note,
+        'goalId': goalId,
+        'subGoalId': subGoalId,
         'startAt': startAt?.toIso8601String(),
         'endAt': endAt?.toIso8601String(),
         'done': done,
+        'isTodayTop3': isTodayTop3,
       };
 
   static Task fromMap(Map<String, dynamic> m) => Task(
-        goalId: m['goalId'] as int?,
-        subGoalId: m['subGoalId'] as int?,
         title: m['title'] as String,
         note: m['note'] as String?,
-        startAt: (m['startAt'] as String?) != null
-            ? DateTime.parse(m['startAt'] as String)
-            : null,
-        endAt: (m['endAt'] as String?) != null
-            ? DateTime.parse(m['endAt'] as String)
-            : null,
+        goalId: m['goalId'] as int?,
+        subGoalId: m['subGoalId'] as int?,
+        startAt: (m['startAt'] as String?) != null ? DateTime.parse(m['startAt'] as String) : null,
+        endAt: (m['endAt'] as String?) != null ? DateTime.parse(m['endAt'] as String) : null,
         done: (m['done'] as bool?) ?? false,
+        isTodayTop3: (m['isTodayTop3'] as bool?) ?? false,
       );
 }
 
