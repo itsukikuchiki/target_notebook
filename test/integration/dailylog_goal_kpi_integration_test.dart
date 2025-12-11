@@ -6,10 +6,11 @@ import 'package:target_notebook/core/hive_init.dart';
 import 'package:target_notebook/models/goal.dart';
 import 'package:target_notebook/models/kpi.dart';
 import 'package:target_notebook/models/task.dart';
+import 'package:target_notebook/models/daily_log.dart';
 import 'package:target_notebook/providers/goal_provider.dart';
 import 'package:target_notebook/providers/task_provider.dart';
 import 'package:target_notebook/providers/daily_log_provider.dart';
-import 'package:target_notebook/adapters/dailylog_adapter.dart';
+import 'package:target_notebook/adapters/dailylog_adapter.dart' as ui;
 
 import '../hive_test_util.dart';
 
@@ -20,7 +21,7 @@ void main() {
     dir = await initHiveTest();
     await Hive.openBox<Goal>(AppBoxes.goal);
     await Hive.openBox<Task>(AppBoxes.task);
-    await Hive.openBox(AppBoxes.dailyLog); // dynamic box ok
+    await Hive.openBox<DailyLog>(AppBoxes.dailyLog);
   });
 
   tearDown(() async {
@@ -38,15 +39,30 @@ void main() {
     // 1) 新建带 KPI 的 Goal
     final g = Goal(
       title: '英语',
-      kpis: [KPI(name: '每周学习时长', targetValue: 10, currentValue: 0, unit: 'hrs', period: 'weekly')],
+      kpis: [
+        KPI(
+          name: '每周学习时长',
+          targetValue: 10,
+          currentValue: 0,
+          unit: 'hrs',
+          period: 'weekly',
+        ),
+      ],
     );
     final gKey = await gp.addGoal(g);
 
     // 2) 新建归属该 Goal 的任务
-    final tKey = (await tp.addTask(Task(title: '背单词', goalId: gKey, startAt: DateTime(2025, 11, 3, 9)))).require;
+    final tKey = (await tp.addTask(
+      Task(
+        title: '背单词',
+        goalId: gKey,
+        startAt: DateTime(2025, 11, 3, 9),
+      ),
+    ))
+        .require;
 
     // 3) 通过 DailyLogAdapter 记一笔 90 分钟，且附带 taskId + goalId
-    final adapter = DailyLogAdapter(lp, tp);
+    final adapter = ui.DailyLogAdapter(lp);
     final when = DateTime(2025, 11, 3, 21); // 同一天
     await adapter.addQuickLog(
       date: when,
@@ -62,3 +78,4 @@ void main() {
     expect(hour, closeTo(1.5, 1e-9));
   });
 }
+

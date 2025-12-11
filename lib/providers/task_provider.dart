@@ -1,24 +1,27 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart'; // 确保有这一行，提供 DateUtils
 
+import 'package:flutter/material.dart'; // 提供 DateUtils
 import 'package:hive/hive.dart';
-import '../core/hive_init.dart';
-import '../core/result.dart';
+
+import '../core/hive_init.dart'; // 提供 AppBoxes
+import '../core/result.dart'; // Result / Success / Failure
 import '../models/task.dart';
 import '../common/utils/date_utils.dart' as du; // 避免命名冲突
-import '../utils/hive_initializer.dart';
+import '../utils/hive_initializer.dart'; // 提供 ensureTypedBox
 
 class TaskProvider extends ChangeNotifier {
   late Box<Task> _taskBox;
 
-  // 记录每天 Top3 的拖拽顺序（key 列表）
+  /// 记录每天 Top3 的拖拽顺序（key 列表）
   final Map<DateTime, List<int>> _top3OrderByDay = {};
 
   /// 初始化
   /// - 可注入 [taskBox]（测试方便）
   /// - 默认使用 [AppBoxes.task]
-  Future<void> init({Box<Task>? taskBox, String boxName = AppBoxes.task}) async {
+  Future<void> init({
+    Box<Task>? taskBox,
+    String boxName = AppBoxes.task,
+  }) async {
     _taskBox = taskBox ?? await ensureTypedBox<Task>(boxName);
   }
 
@@ -48,10 +51,14 @@ class TaskProvider extends ChangeNotifier {
     return list;
   }
 
+  /// 兼容旧命名：某日期任务（未完成优先）
+  List<Task> tasksForDay(DateTime day) => tasksForDate(day);
+
   /// 今日三件事（固定优先，不足补未完成）+ 应用拖拽序
   List<Task> top3ForDate(DateTime day) {
     final s = du.startOfDay(day);
     final e = du.endOfDay(day);
+
     final all = _taskBox.values.where((t) {
       final sa = t.startAt;
       final ea = t.endAt;
@@ -84,13 +91,13 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 拖拽后记录排序
+  /// 拖拽后记录排序（底层是同步的，Adapter 外面会封一层 Future）
   void setTop3Order(DateTime day, List<int> orderedTaskKeys) {
     _top3OrderByDay[DateUtils.dateOnly(day)] = List.of(orderedTaskKeys);
     notifyListeners();
   }
 
-  /// 新建任务
+  /// 基础：新增任务（带 Result 封装）
   Future<Result<int>> addTask(Task t) async {
     try {
       final key = await _taskBox.add(t);
@@ -101,11 +108,13 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  /// 更新任务
+  /// 基础：更新任务
   Future<Result<void>> updateTask(int key, Task patch) async {
     try {
       final t = _taskBox.get(key);
-      if (t == null) return Failure(Exception('Task not found: $key'));
+      if (t == null) {
+        return Failure(Exception('Task not found: $key'));
+      }
       t
         ..title = patch.title
         ..note = patch.note
@@ -148,7 +157,28 @@ class TaskProvider extends ChangeNotifier {
     return key;
   }
 
-  /// 切换完成状态
+  /// 提供给 TaskAdapter.newTask() 使用的通用创建接口
+  ///
+  /// - [date] 为空时默认用今天
+  /// - 返回 Hive 分配的 key
+  Future<int> createTask({
+    required String title,
+    DateTime? date,
+    int? goalId,
+  }) async {
+    final d = date ?? DateTime.now();
+    final t = Task(
+      title: title.trim().isEmpty ? '新任务' : title.trim(),
+      goalId: goalId,
+      startAt: d,
+      endAt: d,
+    );
+    final key = await _taskBox.add(t);
+    notifyListeners();
+    return key;
+  }
+
+  /// 底层：显式设置完成状态（给 Adapter 用）
   Future<void> toggleTaskDone(int key, bool value) async {
     final t = _taskBox.get(key);
     if (t == null) return;
@@ -157,11 +187,23 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 兼容旧接口：切换完成状态（内部取反）
+  Future<void> toggleDone(int key) async {
+    final t = _taskBox.get(key);
+    if (t == null) return;
+    t.done = !t.done;
+    await t.save();
+    notifyListeners();
+  }
+
   /// 导出为 JSON
   String exportAllToJson() {
     final list = _taskBox.keys.map((k) {
       final t = _taskBox.get(k as int)!;
-      return {'key': k, 'data': t.toMap()};
+      return {
+        'key': k,
+        'data': t.toMap(),
+      };
     }).toList();
     return const JsonEncoder.withIndent('  ').convert(list);
   }
@@ -174,7 +216,9 @@ class TaskProvider extends ChangeNotifier {
       for (final e in decoded) {
         final map = Map<String, dynamic>.from(e as Map);
         final key = map['key'] as int?;
-        final t = Task.fromMap(Map<String, dynamic>.from(map['data'] as Map));
+        final t = Task.fromMap(
+          Map<String, dynamic>.from(map['data'] as Map),
+        );
         if (key != null) {
           await _taskBox.put(key, t);
         } else {

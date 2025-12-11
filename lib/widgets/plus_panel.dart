@@ -1,63 +1,66 @@
 import 'package:flutter/material.dart';
 
+import '../pages/editors/goal_edit_page.dart';
+import '../pages/editors/task_edit_page.dart';
+import '../pages/editors/reflection_edit_page.dart';
+
+/// Plus 面板：提供三个入口
+/// - Add Goal
+/// - Add Task
+/// - Add Reflection
+///
+/// 被 TargetNotebookApp 和 plus_panel_test 使用。
 class PlusPanel extends StatelessWidget {
   const PlusPanel({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        _SquareButton(
-          icon: Icons.note_add,
-          label: '快速日志',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const _DummyPage(title: 'Quick Log')),
-          ),
-        ),
-        _SquareButton(
-          icon: Icons.timer,
-          label: '计时器',
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const _DummyPage(title: 'Timer')),
-          ),
-        ),
-      ],
-    );
-  }
-}
+    final colorScheme = Theme.of(context).colorScheme;
 
-class _SquareButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _SquareButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        width: 120,
-        height: 96,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Theme.of(context).colorScheme.surfaceVariant,
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Wrap(
+          spacing: 24,
+          runSpacing: 24,
+          alignment: WrapAlignment.center,
           children: [
-            Icon(icon),
-            const SizedBox(height: 8),
-            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            _SquareButton(
+              icon: Icons.flag_outlined,
+              label: 'Add Goal', // 🔑 测试通过 plusTile('Add Goal') 查找
+              color: colorScheme.primaryContainer,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const GoalEditPage(),
+                  ),
+                );
+              },
+            ),
+            _SquareButton(
+              icon: Icons.checklist,
+              label: 'Add Task', // 🔑 plusTile('Add Task')
+              color: colorScheme.secondaryContainer,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const TaskEditPage(),
+                  ),
+                );
+              },
+            ),
+            _SquareButton(
+              icon: Icons.edit_note,
+              label: 'Add Reflection', // 🔑 plusTile('Add Reflection')
+              color: colorScheme.tertiaryContainer,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ReflectionEditPage(),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -65,13 +68,51 @@ class _SquareButton extends StatelessWidget {
   }
 }
 
-class _DummyPage extends StatelessWidget {
-  final String title;
-  const _DummyPage({required this.title});
+class _SquareButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SquareButton({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: Text(title)));
+    final onColor = Theme.of(context).colorScheme.onPrimaryContainer;
+
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(24),
+      elevation: 2,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onTap,
+        child: SizedBox(
+          width: 140,
+          height: 140,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 40, color: onColor),
+              const SizedBox(height: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  color: onColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

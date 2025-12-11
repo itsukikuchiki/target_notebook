@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'helpers/fakes.dart';
 
-import 'package:target_notebook/app.dart';
+import 'package:target_notebook/widgets/plus_panel.dart';
 import 'package:target_notebook/pages/editors/goal_edit_page.dart';
 import 'package:target_notebook/pages/editors/task_edit_page.dart';
 import 'package:target_notebook/pages/editors/reflection_edit_page.dart';
@@ -19,36 +19,42 @@ void main() {
   Widget buildApp() => MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => NavProvider()),
-          ChangeNotifierProvider<ui.GoalAdapter>.value(value: FakeGoalAdapter()),
-          ChangeNotifierProvider<ui.TaskAdapter>.value(value: FakeTaskAdapter()),
-          ChangeNotifierProvider<ui.DailyLogAdapter>.value(value: FakeDailyLogAdapter()),
+          ChangeNotifierProvider<ui.GoalAdapter>.value(
+            value: FakeGoalAdapter(),
+          ),
+          ChangeNotifierProvider<ui.TaskAdapter>.value(
+            value: FakeTaskAdapter(),
+          ),
+          ChangeNotifierProvider<ui.DailyLogAdapter>.value(
+            value: FakeDailyLogAdapter(),
+          ),
         ],
-        child: const TargetNotebookApp(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: const PlusPanel(),
+          ),
+        ),
       );
 
   testWidgets('Plus panel routes', (tester) async {
     await tester.pumpWidget(buildApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
-    await tester.pumpAndSettle();
-
+    // Add Goal
     await tester.tap(plusTile('Add Goal'));
     await tester.pumpAndSettle();
     expect(find.byType(GoalEditPage), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
-    await tester.pumpAndSettle();
+    // Add Task
     await tester.tap(plusTile('Add Task'));
     await tester.pumpAndSettle();
     expect(find.byType(TaskEditPage), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
-    await tester.pumpAndSettle();
+    // Add Reflection
     await tester.tap(plusTile('Add Reflection'));
     await tester.pumpAndSettle();
     expect(find.byType(ReflectionEditPage), findsOneWidget);

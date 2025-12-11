@@ -13,11 +13,19 @@ import 'package:target_notebook/providers/daily_log_provider.dart';
 
 // ===== 占位 Provider（不初始化 Hive、不做任何事） =====
 class _DummyGoalProvider extends GoalProvider {}
+
 class _DummyTaskProvider extends TaskProvider {}
+
 class _DummyDailyLogProvider extends DailyLogProvider {}
 
 // ====== 公共：构造 GoalVM 便捷函数 ======
-ui.GoalVM goal(int id, String title, double progress, int done, int total) =>
+ui.GoalVM goal(
+  int id,
+  String title,
+  double progress,
+  int done,
+  int total,
+) =>
     ui.GoalVM(
       id: id,
       title: title,
@@ -31,6 +39,7 @@ class FakeGoalAdapter extends ui.GoalAdapter {
   FakeGoalAdapter() : super(_DummyGoalProvider(), _DummyTaskProvider());
 
   List<ui.GoalVM> _list = const [];
+
   set seed(List<ui.GoalVM> v) {
     _list = v;
     notifyListeners();
@@ -46,6 +55,7 @@ class FakeTaskVM {
   final String title;
   final DateTime date;
   final bool done;
+
   FakeTaskVM(this.id, this.title, this.date, this.done);
 }
 
@@ -63,7 +73,6 @@ class FakeTaskAdapter extends ui.TaskAdapter {
   @override
   List<ui.TaskVM> tasksForDate(DateTime d) {
     final list = _table[DateUtils.dateOnly(d)] ?? const <FakeTaskVM>[];
-    // ✅ TaskVM 需要四个位置参数：id, title, date, done
     final result = <ui.TaskVM>[
       for (final t in list) ui.TaskVM(t.id, t.title, t.date, t.done),
     ];
@@ -71,8 +80,18 @@ class FakeTaskAdapter extends ui.TaskAdapter {
   }
 
   @override
+  List<ui.TaskVM> tasksForDay(DateTime d) => tasksForDate(d);
+
+  @override
+  List<ui.TaskVM> top3ForDate(DateTime d) {
+    final list = tasksForDate(d);
+    if (list.length <= 3) return list;
+    return list.take(3).toList();
+  }
+
+  @override
   Future<void> toggleTaskDone(int id, bool v) async {
-    // 简化：仅通知刷新
+    // 简化：仅通知刷新，不改内部数据
     notifyListeners();
   }
 }
@@ -81,14 +100,24 @@ class FakeTaskAdapter extends ui.TaskAdapter {
 class ReflectionStub implements ui.ReflectionVM {
   @override
   final DateTime date;
+
   @override
   final String content;
-  const ReflectionStub(this.date, this.content);
+
+  @override
+  final int minutes;
+
+  const ReflectionStub(
+    this.date,
+    this.content, {
+    this.minutes = 0,
+  });
 }
 
 // ====== Fake：DailyLogAdapter（类型上 = 真实 DailyLogAdapter）======
 class FakeDailyLogAdapter extends ui.DailyLogAdapter {
-  FakeDailyLogAdapter() : super(_DummyDailyLogProvider(), _DummyTaskProvider());
+  // ✅ 真实 DailyLogAdapter 现在只接收一个 DailyLogProvider
+  FakeDailyLogAdapter() : super(_DummyDailyLogProvider());
 
   ui.WeeklyVM _weekly =
       const ui.WeeklyVM({}, 0.0, '本周还没有记录投入时长，开始第一条吧！');
@@ -112,5 +141,6 @@ class FakeDailyLogAdapter extends ui.DailyLogAdapter {
 }
 
 // ====== Finder 辅助 ======
-Finder plusTile(String text) => find.widgetWithText(ListTile, text);
+/// 现在 PlusPanel 里的按钮不是 ListTile，只要根据文本找就可以
+Finder plusTile(String text) => find.text(text);
 

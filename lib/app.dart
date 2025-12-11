@@ -1,72 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:hive/hive.dart';
-import 'package:path_provider/path_provider.dart';
 
-import 'providers/task_provider.dart';
-import 'providers/daily_log_provider.dart';
-import 'providers/goal_provider.dart';
-import 'adapters/dailylog_adapter.dart';
 import 'pages/daily_page.dart';
 import 'pages/insight_page.dart';
 import 'pages/reflection_page.dart';
 import 'widgets/plus_panel.dart';
 
-class CoreApp extends StatefulWidget {
-  const CoreApp({super.key});
-
-  @override
-  State<CoreApp> createState() => _CoreAppState();
-}
-
-class _CoreAppState extends State<CoreApp> {
-  bool _initialized = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _initHive();
-  }
-
-  Future<void> _initHive() async {
-    final dir = await getApplicationDocumentsDirectory();
-    Hive.init(dir.path);
-
-    final tp = TaskProvider();
-    final dp = DailyLogProvider();
-    final gp = GoalProvider();
-
-    await tp.init();
-    await dp.init();
-    await gp.init();
-
-    setState(() => _initialized = true);
-  }
+/// 对外暴露的根 Widget，供 main.dart 和测试使用。
+///
+/// 注意：这个 Widget **不再负责 Hive / Provider 初始化**，
+/// 只构建 MaterialApp + 底部导航；
+/// Provider 由外层 MultiProvider 注入（参考 main.dart / 各测试）。
+class TargetNotebookApp extends StatelessWidget {
+  const TargetNotebookApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    if (!_initialized) {
-      return const MaterialApp(home: Scaffold(body: Center(child: CircularProgressIndicator())));
-    }
-
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => TaskProvider()),
-        ChangeNotifierProvider(create: (_) => DailyLogProvider()),
-        ChangeNotifierProvider(create: (context) {
-          final dp = context.read<DailyLogProvider>();
-          return DailyLogAdapter(dp);
-        }),
-        ChangeNotifierProvider(create: (_) => GoalProvider()),
-      ],
-      child: MaterialApp(
-        title: 'Target Notebook',
-        theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: Colors.indigo,
-        ),
-        home: const _MainScaffold(),
+    return MaterialApp(
+      title: 'Target Notebook',
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: Colors.indigo,
       ),
+      home: const _MainScaffold(),
     );
   }
 }
@@ -80,6 +35,7 @@ class _MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<_MainScaffold> {
   int _index = 0;
+
   final _pages = const [
     DailyPage(),
     InsightPage(),
@@ -94,10 +50,22 @@ class _MainScaffoldState extends State<_MainScaffold> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.calendar_today), label: 'Daily'),
-          NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Insight'),
-          NavigationDestination(icon: Icon(Icons.book), label: 'Reflection'),
-          NavigationDestination(icon: Icon(Icons.add_circle_outline), label: 'Plus'),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today),
+            label: 'Daily',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart),
+            label: 'Insight',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.book),
+            label: 'Reflection',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.add_circle_outline),
+            label: 'Plus',
+          ),
         ],
         onDestinationSelected: (i) => setState(() => _index = i),
       ),

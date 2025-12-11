@@ -1,10 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:collection/collection.dart';
-import '../providers/daily_log_provider.dart';
-import '../models/daily_log.dart';
 
-/// —— View Models ——
-/// 与测试约定保持一致：外部常以 `import '.../dailylog_adapter.dart' as ui;` 引用。
+import '../providers/daily_log_provider.dart';
+
 class WeeklyStatsVM {
   /// 每天的投入小时数（key 为“去除时分秒”的日期）
   final Map<DateTime, double> hoursByDay;
@@ -16,6 +13,13 @@ class WeeklyStatsVM {
   final String message;
 
   const WeeklyStatsVM(this.hoursByDay, this.completionRate, this.message);
+
+  /// 方便 UI/测试：总小时数
+  double get totalHours =>
+      hoursByDay.values.fold<double>(0.0, (a, b) => a + b);
+
+  /// 方便 UI/测试：文案别名
+  String get tip => message;
 }
 
 /// 历史反思/随记（用于 `ReflectionPage`/Plus 面板等）
@@ -31,7 +35,7 @@ class ReflectionVM {
   });
 }
 
-/// 为了兼容你历史上使用过的 `WeeklyVM` 命名，这里做一个别名
+/// 为了兼容历史上使用过的 `WeeklyVM` 命名，这里做一个别名
 typedef WeeklyVM = WeeklyStatsVM;
 
 /// —— Adapter ——
@@ -69,28 +73,32 @@ class DailyLogAdapter extends ChangeNotifier {
     );
   }
 
-  // ------------- 聚合：周统计（供 InsightPage 使用） -------------
+  // ------------- 聚合：周统计（供 Daily / Insight 使用） -------------
   /// 计算“当前周（周一~周日）”的投入小时分布与完成率。
   ///
-  /// - `hoursByDay`：Map<DateOnly, hours>
+  /// - `hoursByDay`：一个 Map，键为日期（去除时分秒），值为当天投入的小时数。
   /// - `completionRate`：目前没有“目标阈值”数据，先简单按“本周是否有记录”给出 0 或 1。
   ///   如果你后续在 Goal/Setting 里提供“每周目标小时数”，这里可改为：`total / weeklyTargetHours`
   WeeklyStatsVM weeklyStats({DateTime? now}) {
     final anchor = now ?? DateTime.now();
     final start = _weekStart(anchor);
-    final end = start.add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
+    final end = start.add(
+      const Duration(days: 6, hours: 23, minutes: 59, seconds: 59),
+    );
 
     final all = logs.all();
-    final inWeek = all.where((e) => !e.date.isBefore(start) && !e.date.isAfter(end)).toList();
+    final inWeek = all
+        .where((e) => !e.date.isBefore(start) && !e.date.isAfter(end))
+        .toList();
 
-    // 聚合：分钟 -> 小时
+    // 聚合：分钟 -> 小时（先按天累加分钟，再统一换算小时）
     final Map<DateTime, double> map = {};
     for (final e in inWeek) {
       final d = _dateOnly(e.date);
       final minutes = (map[d] ?? 0.0) + e.minutes.toDouble();
       map[d] = minutes;
     }
-    // to hours
+    // 转成小时
     map.updateAll((_, v) => v / 60.0);
 
     final totalHours = map.values.fold<double>(0.0, (a, b) => a + b);
@@ -109,8 +117,13 @@ class DailyLogAdapter extends ChangeNotifier {
   List<ReflectionVM> latestReflections({int limit = 10}) {
     final all = logs.all()
       ..sort((a, b) => b.date.compareTo(a.date));
+
     return all.take(limit).map((e) {
-      return ReflectionVM(date: e.date, content: e.content, minutes: e.minutes);
+      return ReflectionVM(
+        date: e.date,
+        content: e.content,
+        minutes: e.minutes,
+      );
     }).toList();
   }
 

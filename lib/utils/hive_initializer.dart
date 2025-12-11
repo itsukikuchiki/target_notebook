@@ -1,18 +1,13 @@
 import 'package:hive/hive.dart';
 
-/// 确保获得一个泛型为 T 的 Box：
-/// - 如果未打开 => 直接 openBox<T>
-/// - 如果已打开但泛型匹配 => 直接返回
-/// - 如果已打开但泛型不匹配 => 关闭后以 T 重新打开
+/// 打开一个带类型参数的 Hive 盒子。
+///
+/// - 如果名称为 [name] 的盒子已经打开，则直接返回现有的 typed box；
+/// - 如果尚未打开，则以类型 [T] 打开并返回。
 Future<Box<T>> ensureTypedBox<T>(String name) async {
-  if (!Hive.isBoxOpen(name)) {
-    return await Hive.openBox<T>(name);
+  if (Hive.isBoxOpen(name)) {
+    return Hive.box<T>(name);
   }
-  final opened = Hive.box(name);
-  if (opened is Box<T>) {
-    return opened;
-  }
-  await opened.close();
-  return await Hive.openBox<T>(name);
+  return Hive.openBox<T>(name);
 }
 

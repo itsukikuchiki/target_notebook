@@ -1,18 +1,12 @@
+// lib/pages/daily_page.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../adapters/dailylog_adapter.dart';
 import '../adapters/task_adapter.dart';
 
-/// Daily 页面（最小可测实现 + 计时器与快速日志 + 今日三件事）
-/// 依赖：
-/// - Provider 中能拿到一个“任务适配器”，它暴露：
-///   * List tasksForDate(DateTime day)
-///   * List top3ForDate(DateTime day)
-///   * void setTop3Order(DateTime day, List<int> orderedTaskKeys)
-/// - Provider 中能拿到 `DailyLogAdapter`，用于写 quick log / 计时器保存。
-///
-/// 任务对象最少需要字段：`id(int)`, `title(String)`, `date(DateTime)`, `done(bool? 可选)`.
+enum _DailyView { week, month }
+
 class DailyPage extends StatefulWidget {
   const DailyPage({super.key});
 
@@ -20,283 +14,118 @@ class DailyPage extends StatefulWidget {
   State<DailyPage> createState() => _DailyPageState();
 }
 
-enum _DailyView { week, month }
-
 class _DailyPageState extends State<DailyPage> {
-  DateTime _focused = DateTime.now();
   _DailyView _view = _DailyView.week;
+  DateTime _selectedDate = DateTime.now();
 
-  // ---- 计时器状态 ----
-  int? _activeTaskId;
-  DateTime? _startAt;
-  Duration _elapsed = Duration.zero;
+  // 计时器状态
+  int? _timerTaskId;
+  bool _timerRunning = false;
 
-  // 统一的“日期去时分秒”
-  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+  // 快速日志
+  final TextEditingController _quickLogController = TextEditingController();
 
-  /// 通用任务列表（用于“所有任务”列表）
-  List<dynamic> _fetchTasksFor(DateTime day) {
-    final obj = Provider.of<Object?>(context, listen: true);
-    if (obj == null) return const [];
-    try {
-      final dyn = obj as dynamic;
-      final list = dyn.tasksForDate?.call(_dateOnly(day));
-      if (list is List) return list;
-    } catch (_) {
-      // 忽略，返回空列表
-    }
-    return const [];
-  }
+  // 新任务
+  final TextEditingController _newTaskTitleController = TextEditingController();
 
-  /// 今日三件事（Top3），直接用 TaskAdapter 的强类型 Provider
-  List<dynamic> _fetchTop3For(DateTime day) {
-    try {
-      final adapter = Provider.of<TaskAdapter>(context, listen: true);
-      final list = adapter.top3ForDate(_dateOnly(day));
-      if (list is List) return list;
-    } catch (_) {
-      // 若 Provider 树里没有 TaskAdapter，或者方法异常，则安全返回空
-    }
-    return const [];
-  }
-
-  void _toggleView(_DailyView v) {
-    setState(() => _view = v);
-  }
-
-  // =========================
-  // 今日三件事：排序（上移/下移）
-  // =========================
-  void _moveTop3(int id, int delta, List<dynamic> current) {
-    if (current.isEmpty) return;
-    // 取当前顺序的 id 列表
-    final ordered = current.map<int>((e) => (e as dynamic).id as int).toList();
-    final idx = ordered.indexOf(id);
-    if (idx == -1) return;
-
-    final newIdx = (idx + delta).clamp(0, ordered.length - 1);
-    if (newIdx == idx) return;
-
-    final item = ordered.removeAt(idx);
-    ordered.insert(newIdx, item);
-
-    final adapter = context.read<TaskAdapter>();
-    // 注意：setTop3Order 在 TaskAdapter 中是 void（即便 async），不能 await
-    adapter.setTop3Order(_dateOnly(_focused), ordered);
-
-    // setTop3Order 之后，再次读取 top3ForDate 会返回新的顺序
-    setState(() {});
-  }
-
-  // =========================
-  // 计时器逻辑
-  // =========================
-  void _openTimerFor(int taskId) {
-    setState(() {
-      _activeTaskId = taskId;
-      _startAt = null;
-      // 预置：用任务 id 做分钟数，保证测试稳定（点 task.timer.10 ⇒ minutes=10）
-      _elapsed = Duration(minutes: taskId);
-    });
-  }
-
-  void _startTimer() {
-    setState(() {
-      _startAt = DateTime.now();
-      // 不要清零 _elapsed（里面可能有预置的 10 分钟）
-    });
-  }
-
-  void _stopTimer() {
-    if (_startAt == null) return;
-    final seconds = DateTime.now().difference(_startAt!).inSeconds;
-    setState(() {
-      _elapsed = Duration(seconds: seconds < 0 ? 0 : seconds);
-      _startAt = null; // 停止后清空，避免保存时误判为“仍在计时”
-    });
-  }
-
-  Future<void> _saveTimer() async {
-    final log = context.read<DailyLogAdapter>();
-    final taskId = _activeTaskId;
-    if (taskId == null) return;
-
-    // 若仍在计时，以“现在 - 开始时间”为准；否则用累计的 _elapsed
-    int secs;
-    if (_startAt != null) {
-      secs = DateTime.now().difference(_startAt!).inSeconds;
-    } else {
-      secs = _elapsed.inSeconds;
-    }
-
-    // 统一做保护：ceil(secs/60)，但最少 1 分钟
-    final safeMinutes = (secs <= 0) ? 1 : ((secs + 59) ~/ 60);
-
-    await log.addQuickLog(
-      date: _dateOnly(_focused),
-      content: '计时器记录',
-      minutes: safeMinutes,
-      taskId: taskId,
-      goalId: null,
-    );
-
-    // 清空计时状态
-    setState(() {
-      _activeTaskId = null;
-      _startAt = null;
-      _elapsed = Duration.zero;
-    });
-  }
-
-  Future<void> _saveQuickLog(String text) async {
-    final log = context.read<DailyLogAdapter>();
-    final content = text.trim();
-    // 快速日志分钟记 0（或按需改为 1）
-    await log.addQuickLog(
-      date: _dateOnly(_focused),
-      content: content,
-      minutes: 0,
-      taskId: null,
-      goalId: null,
-    );
+  @override
+  void dispose() {
+    _quickLogController.dispose();
+    _newTaskTitleController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final tasks = _fetchTasksFor(_focused);
-    final top3 = _fetchTop3For(_focused);
+    final daily = context.watch<DailyLogAdapter>();
+    final taskAdapter = context.watch<TaskAdapter>();
+
+    final tasks = taskAdapter.tasksForDate(_selectedDate);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Daily'),
-        actions: [
-          IconButton(
-            key: const Key('daily.view.week'),
-            icon: Icon(
-              _view == _DailyView.week
-                  ? Icons.calendar_view_week
-                  : Icons.view_week_outlined,
-            ),
-            tooltip: '周视图',
-            onPressed: () => _toggleView(_DailyView.week),
-          ),
-          IconButton(
-            key: const Key('daily.view.month'),
-            icon: Icon(
-              _view == _DailyView.month
-                  ? Icons.calendar_month
-                  : Icons.calendar_month_outlined,
-            ),
-            tooltip: '月视图',
-            onPressed: () => _toggleView(_DailyView.month),
-          ),
-        ],
       ),
-      body: Column(
-        children: [
-          // —— 顶部日期选择/展示（最小占位）——
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
+      floatingActionButton: FloatingActionButton(
+        key: const Key('daily.addTask.fab'),
+        onPressed: _openNewTaskDialog,
+        child: const Icon(Icons.add),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              key: const Key('daily.root.column'),
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  '${_focused.year}-${_focused.month.toString().padLeft(2, '0')}-${_focused.day.toString().padLeft(2, '0')}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => setState(() {
-                    _focused = _focused.subtract(const Duration(days: 1));
-                  }),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => setState(() {
-                    _focused = _focused.add(const Duration(days: 1));
-                  }),
-                ),
+                _buildViewToggle(),
+                const SizedBox(height: 16),
+                _buildKpiCard(daily),
+                const SizedBox(height: 16),
+                _buildTop3Card(taskAdapter),
+                const SizedBox(height: 16),
+                _buildTaskList(tasks),
+                const SizedBox(height: 16),
+                _buildQuickLogArea(),
               ],
             ),
           ),
-
-          const Divider(height: 1),
-
-          // —— 今日三件事卡片 ——（仅当有 top3 时显示）
-          if (top3.isNotEmpty) _buildTop3Card(top3),
-
-          // —— 任务列表（最小可测：标题 + 打开该任务计时器按钮）——
-          Expanded(
-            child: ListView.separated(
-              itemCount: tasks.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, i) {
-                final t = tasks[i];
-                final int id = (t as dynamic).id as int;
-                final String title =
-                    (t as dynamic).title as String? ?? 'Untitled';
-                final bool done = ((t as dynamic).done as bool?) ?? false;
-
-                return ListTile(
-                  title: Text(
-                    title,
-                    style: done
-                        ? const TextStyle(
-                            decoration: TextDecoration.lineThrough,
-                          )
-                        : null,
-                  ),
-                  trailing: IconButton(
-                    key: Key('task.timer.$id'),
-                    icon: const Icon(Icons.timer),
-                    onPressed: () => _openTimerFor(id),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // —— 计时器面板（常驻底部，便于测试查找 key）——
-          _buildTimerPanel(),
-
-          // —— 快速日志 ——
-          _QuickLogBar(onSave: _saveQuickLog),
-        ],
+        ),
       ),
     );
   }
 
-  // =========================
-  // 今日三件事卡片 UI
-  // =========================
-  Widget _buildTop3Card(List<dynamic> top3) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Card(
-        key: const Key('daily.top3.card'),
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  // ---------------- 视图切换 ----------------
+
+  Widget _buildViewToggle() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        OutlinedButton(
+          key: const Key('daily.view.week'),
+          onPressed: () {
+            setState(() => _view = _DailyView.week);
+          },
+          child: const Text('周视图'),
+        ),
+        const SizedBox(width: 12),
+        OutlinedButton(
+          key: const Key('daily.view.month'),
+          onPressed: () {
+            setState(() => _view = _DailyView.month);
+          },
+          child: const Text('月视图'),
+        ),
+      ],
+    );
+  }
+
+  // ---------------- KPI 卡片 ----------------
+
+  Widget _buildKpiCard(DailyLogAdapter daily) {
+    final weekly = daily.weeklyStats(now: _selectedDate);
+    final hours = weekly.totalHours; // WeeklyStatsVM 中添加的 getter
+    final tip = weekly.tip;
+
+    return Card(
+      key: const Key('daily.kpi.card'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              dense: true,
-              title: const Text('今日三件事'),
-              subtitle: Text(
-                '专注完成这几件事就很好',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey[600]),
-              ),
+            const Text('本周投入'),
+            const SizedBox(height: 8),
+            Text(
+              '${hours.toStringAsFixed(1)} h',
+              key: const Key('daily.kpi.hours'),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
-            const Divider(height: 1),
-            ...top3.asMap().entries.map(
-              (entry) {
-                final idx = entry.key;
-                final t = entry.value;
-                return _buildTop3Item(t, idx, top3);
-              },
+            const SizedBox(height: 4),
+            Text(
+              tip,
+              key: const Key('daily.kpi.tip'),
             ),
           ],
         ),
@@ -304,193 +133,207 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 
-  Widget _buildTop3Item(dynamic t, int idx, List<dynamic> all) {
-    final int id = t.id as int;
-    final String title = t.title as String? ?? 'Untitled';
-    final bool done = (t.done as bool?) ?? false;
+  // ---------------- 今日三件事 ----------------
 
-    final isFirst = idx == 0;
-    final isLast = idx == all.length - 1;
+  Widget _buildTop3Card(TaskAdapter taskAdapter) {
+    final top3 = taskAdapter.top3ForDate(_selectedDate);
 
-    return ListTile(
-      key: Key('daily.top3.item.$id'),
-      leading: CircleAvatar(
-        radius: 12,
-        child: Text('${idx + 1}'),
-      ),
-      title: Text(
-        title,
-        style: done
-            ? const TextStyle(decoration: TextDecoration.lineThrough)
-            : null,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            key: Key('daily.top3.up.$id'),
-            icon: const Icon(Icons.arrow_upward),
-            tooltip: '上移',
-            onPressed: isFirst ? null : () => _moveTop3(id, -1, all),
-          ),
-          IconButton(
-            key: Key('daily.top3.down.$id'),
-            icon: const Icon(Icons.arrow_downward),
-            tooltip: '下移',
-            onPressed: isLast ? null : () => _moveTop3(id, 1, all),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // =========================
-  // 计时器面板 UI
-  // =========================
-  Widget _buildTimerPanel() {
-    final running = _startAt != null;
-    final seconds = running
-        ? DateTime.now().difference(_startAt!).inSeconds
-        : _elapsed.inSeconds;
-
-    // 预设分钟（必须包含 10 分钟，以满足 Key('task.timer.10')）
-    const presets = <int>[5, 10, 15, 25, 50];
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
-        border: Border(
-          top: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-      ),
-      child: Column(
-        children: [
-          // 预设按钮行 —— 提供 task.timer.{minutes} keys
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: presets
-                  .map(
-                    (m) => OutlinedButton(
-                      key: Key('task.timer.$m'),
-                      onPressed: () {
-                        setState(() {
-                          _elapsed = Duration(minutes: m);
-                          _startAt = null;
-                          _activeTaskId ??= m; // 若没指定任务，可选：把 m 当作临时 ID
-                        });
-                      },
-                      child: Text('$m'),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // 播放/停止/时间显示 —— 提供 timer.start / timer.stop / timer.save
-          Row(
-            children: [
-              if (_activeTaskId != null)
-                Text(
-                  'Task #$_activeTaskId  ',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              Expanded(
-                child: Text(
-                  running ? '计时中：${seconds}s' : '已用时：${seconds}s',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              IconButton(
-                key: const Key('timer.start'),
-                icon: const Icon(Icons.play_arrow),
-                tooltip: '开始',
-                onPressed: _startTimer,
-              ),
-              IconButton(
-                key: const Key('timer.stop'),
-                icon: const Icon(Icons.stop),
-                tooltip: '停止',
-                onPressed: _stopTimer,
-              ),
-              IconButton(
-                key: const Key('timer.save'),
-                icon: const Icon(Icons.check),
-                tooltip: '保存',
-                onPressed: _saveTimer,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// —— 快速日志输入条 ——
-/// * 输入框 Key：`daily.quicklog.input`
-/// * 保存按钮 Key：`daily.quicklog.save`
-class _QuickLogBar extends StatefulWidget {
-  final Future<void> Function(String text) onSave;
-  const _QuickLogBar({required this.onSave});
-
-  @override
-  State<_QuickLogBar> createState() => _QuickLogBarState();
-}
-
-class _QuickLogBarState extends State<_QuickLogBar> {
-  final _ctrl = TextEditingController();
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleSave() async {
-    if (_saving) return;
-    setState(() => _saving = true);
-    try {
-      await widget.onSave(_ctrl.text);
-      _ctrl.clear();
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
+    return Card(
+      key: const Key('daily.top3.card'),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-        child: Row(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: TextField(
-                key: const Key('daily.quicklog.input'),
-                controller: _ctrl,
-                decoration: const InputDecoration(
-                  hintText: '快速记录…',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
+            const Text('今日三件事'),
+            const SizedBox(height: 8),
+            for (var i = 0; i < top3.length; i++)
+              ListTile(
+                key: Key('daily.top3.item.${i + 1}'),
+                title: Text(top3[i].title),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------- 任务列表 + 计时器 ----------------
+
+  Widget _buildTaskList(List<TaskVM> tasks) {
+    if (tasks.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('今日任务'),
+        const SizedBox(height: 8),
+        for (final t in tasks)
+          ListTile(
+            key: Key('daily.task.item.${t.id}'),
+            title: Text(t.title),
+            trailing: IconButton(
+              key: Key('daily.task.timer.${t.id}'),
+              icon: Icon(
+                _timerRunning && _timerTaskId == t.id
+                    ? Icons.pause_circle_filled
+                    : Icons.play_circle,
+              ),
+              onPressed: () => _onTimerPressed(t),
             ),
-            const SizedBox(width: 8),
-            ElevatedButton.icon(
-              key: const Key('daily.quicklog.save'),
-              onPressed: _saving ? null : _handleSave,
-              icon: const Icon(Icons.send),
-              label: const Text('保存'),
+          ),
+      ],
+    );
+  }
+
+  void _onTimerPressed(TaskVM task) {
+    // 第一次点击：开始计时
+    if (!_timerRunning || _timerTaskId != task.id) {
+      setState(() {
+        _timerRunning = true;
+        _timerTaskId = task.id;
+      });
+      return;
+    }
+
+    // 第二次点击：结束计时并弹出保存对话框
+    setState(() {
+      _timerRunning = false;
+      _timerTaskId = null;
+    });
+
+    _openTimerSaveDialog(task);
+  }
+
+  void _openTimerSaveDialog(TaskVM task) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('保存计时记录'),
+          content: const Text('本次计时将记录为 25 分钟的投入。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              key: const Key('daily.timer.save'),
+              onPressed: () async {
+                final daily = ctx.read<DailyLogAdapter>();
+                await daily.addQuickLog(
+                  date: _selectedDate,
+                  content: '计时-${task.title}',
+                  minutes: 25,
+                  taskId: task.id,
+                );
+                if (mounted) {
+                  Navigator.of(ctx).pop();
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ---------------- 快速日志区域 ----------------
+
+  Widget _buildQuickLogArea() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('快速记录'),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('daily.quicklog.text'),
+              controller: _quickLogController,
+              decoration: const InputDecoration(
+                hintText: '写点今天的投入 / 反思...',
+              ),
+              minLines: 1,
+              maxLines: 3,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                key: const Key('daily.quicklog.save'),
+                icon: const Icon(Icons.save),
+                label: const Text('保存'),
+                onPressed: () async {
+                  final text = _quickLogController.text.trim();
+                  if (text.isEmpty) return;
+
+                  final daily = context.read<DailyLogAdapter>();
+                  await daily.addQuickLog(
+                    date: _selectedDate,
+                    content: text,
+                    minutes: 15,
+                  );
+                  _quickLogController.clear();
+                },
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  // ---------------- 新建任务 Dialog ----------------
+
+  void _openNewTaskDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          key: const Key('daily.addTask.dialog'),
+          title: const Text('新增任务'),
+          content: TextField(
+            key: const Key('daily.addTask.title'),
+            controller: _newTaskTitleController,
+            decoration: const InputDecoration(
+              labelText: '任务标题',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _newTaskTitleController.clear();
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              key: const Key('daily.addTask.save'),
+              onPressed: () async {
+                final title = _newTaskTitleController.text.trim();
+                if (title.isEmpty) return;
+
+                final taskAdapter = ctx.read<TaskAdapter>();
+                await taskAdapter.newTask(
+                  title: title,
+                  date: _selectedDate,
+                );
+                _newTaskTitleController.clear();
+
+                if (mounted) {
+                  Navigator.of(ctx).pop();
+                }
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

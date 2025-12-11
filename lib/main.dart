@@ -16,8 +16,6 @@ import 'adapters/task_adapter.dart' as vm;
 import 'adapters/dailylog_adapter.dart' as vm;
 
 // 4) 模型（仅为种子数据所需，起别名 m，避免与 UI Adapter 同名）
-//    注意：这些文件里也声明了 Hive 的 *TypeAdapter*，名字也叫 GoalAdapter/TaskAdapter…
-//    所以一定要用别名 `m.` 来引用模型类，避免与 vm. 冲突。
 import 'models/goal.dart' as m;
 import 'models/task.dart' as m;
 import 'models/daily_log.dart' as m;
@@ -34,7 +32,7 @@ Future<void> main() async {
   // ✅ 2) 初始化各 Provider（绑定已打开的 box）
   final goalP = GoalProvider();
   final taskP = TaskProvider();
-  final logP  = DailyLogProvider();
+  final logP = DailyLogProvider();
   await goalP.init();
   await taskP.init();
   await logP.init();
@@ -43,10 +41,11 @@ Future<void> main() async {
   await _seedIfEmpty();
 
   // ✅ 4) 构造 UI 适配器（注意用 vm. 前缀）
-  final nav    = NavProvider();
+  final nav = NavProvider();
   final goalVM = vm.GoalAdapter(goalP, taskP);
   final taskVM = vm.TaskAdapter(taskP);
-  final logVM  = vm.DailyLogAdapter(logP, taskP);
+  // ✅ DailyLogAdapter 现在只接收一个 DailyLogProvider 实例
+  final logVM = vm.DailyLogAdapter(logP);
 
   // ✅ 5) 注入并启动
   runApp(
@@ -69,25 +68,52 @@ Future<void> main() async {
 Future<void> _seedIfEmpty() async {
   final goalBox = Hive.box<m.Goal>(AppBoxes.goal);
   final taskBox = Hive.box<m.Task>(AppBoxes.task);
-  final logBox  = Hive.box<m.DailyLog>(AppBoxes.dailyLog);
+  final logBox = Hive.box<m.DailyLog>(AppBoxes.dailyLog);
 
   if (goalBox.isEmpty && taskBox.isEmpty && logBox.isEmpty) {
-    final g = m.Goal(title: '通过 FP2', description: '两个月内通过考试', priority: 1);
+    final g = m.Goal(
+      title: '通过 FP2',
+      description: '两个月内通过考试',
+      priority: 1,
+    );
     final gKey = await goalBox.add(g);
 
     final now = DateTime.now();
-    await taskBox.add(m.Task(title: '晨跑 3km', goalId: gKey, startAt: now, done: true));
-    await taskBox.add(m.Task(title: '复习章节 5', goalId: gKey, startAt: now));
-    await taskBox.add(m.Task(title: '错题整理 30min', goalId: gKey, startAt: now.add(const Duration(days: 1))));
+    await taskBox.add(
+      m.Task(
+        title: '晨跑 3km',
+        goalId: gKey,
+        startAt: now,
+        done: true,
+      ),
+    );
+    await taskBox.add(
+      m.Task(
+        title: '复习章节 5',
+        goalId: gKey,
+        startAt: now,
+      ),
+    );
+    await taskBox.add(
+      m.Task(
+        title: '错题整理 30min',
+        goalId: gKey,
+        startAt: now.add(const Duration(days: 1)),
+      ),
+    );
 
     for (int i = 0; i < 3; i++) {
       final d = DateTime(now.year, now.month, now.day - i, 10, 0, 0);
-      await logBox.add(m.DailyLog(
-        date: d,
-        content: i == 0 ? '今天状态不错，完成关键任务。' : (i == 1 ? '注意休息，下午效率低。' : '需要更早开始专注时段。'),
-        goalId: gKey,
-        minutes: 60 * (i + 1),
-      ));
+      await logBox.add(
+        m.DailyLog(
+          date: d,
+          content: i == 0
+              ? '今天状态不错，完成关键任务。'
+              : (i == 1 ? '注意休息，下午效率低。' : '需要更早开始专注时段。'),
+          goalId: gKey,
+          minutes: 60 * (i + 1),
+        ),
+      );
     }
   }
 }

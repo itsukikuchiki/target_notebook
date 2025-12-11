@@ -45,19 +45,26 @@ void main() {
       ],
     );
 
-    final addRes = await gp.addGoal(g);
-    final goalKey = (addRes as Success<int>).value;
+    final goalKey = await gp.addGoal(g);
 
     // 周一写 2 小时
     final now = DateTime(2025, 10, 20, 9); // 周一
-    await lp.addLog(DailyLog(date: now, content: 'study', goalId: goalKey, minutes: 120)); // 2h
+    await lp.addLog(
+      DailyLog(
+        date: now,
+        content: 'study',
+        goalId: goalKey,
+        minutes: 120,
+      ),
+    ); // 2h
 
     final saved = Hive.box<Goal>(AppBoxes.goal).get(goalKey)!;
     // 断言：该 KPI 已被刷新到 2.0 小时
     expect(saved.kpis.first.currentValue, closeTo(2.0, 1e-9));
   });
 
-  test('multiple logs in the same week are accumulated into weekly KPI hours', () async {
+  test('multiple logs in the same week are accumulated into weekly KPI hours',
+      () async {
     final gp = GoalProvider();
     final lp = DailyLogProvider();
     await gp.init();
@@ -76,17 +83,37 @@ void main() {
       ],
     );
 
-    final addRes = await gp.addGoal(g);
-    final goalKey = (addRes as Success<int>).value;
+    final goalKey = await gp.addGoal(g);
 
     // 同一周内三次打卡：1h + 1.5h + 2h = 4.5h
     final mon = DateTime(2025, 10, 20, 8); // 周一
     final wed = DateTime(2025, 10, 22, 20); // 周三
     final sat = DateTime(2025, 10, 25, 10); // 周六
 
-    await lp.addLog(DailyLog(date: mon, content: 'morning reading', goalId: goalKey, minutes: 60));
-    await lp.addLog(DailyLog(date: wed, content: 'listening', goalId: goalKey, minutes: 90));
-    await lp.addLog(DailyLog(date: sat, content: 'speaking', goalId: goalKey, minutes: 120));
+    await lp.addLog(
+      DailyLog(
+        date: mon,
+        content: 'morning reading',
+        goalId: goalKey,
+        minutes: 60,
+      ),
+    );
+    await lp.addLog(
+      DailyLog(
+        date: wed,
+        content: 'listening',
+        goalId: goalKey,
+        minutes: 90,
+      ),
+    );
+    await lp.addLog(
+      DailyLog(
+        date: sat,
+        content: 'speaking',
+        goalId: goalKey,
+        minutes: 120,
+      ),
+    );
 
     final saved = Hive.box<Goal>(AppBoxes.goal).get(goalKey)!;
     expect(saved.kpis.first.currentValue, closeTo(4.5, 1e-9));

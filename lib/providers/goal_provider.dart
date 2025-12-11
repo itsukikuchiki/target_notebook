@@ -1,6 +1,8 @@
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+
 import '../core/hive_init.dart';
 import '../models/goal.dart';
 import '../models/daily_log.dart';
@@ -18,7 +20,7 @@ class GoalProvider extends ChangeNotifier {
     String logBoxName = AppBoxes.dailyLog,
   }) async {
     _goalBox = goalBox ?? await ensureTypedBox<Goal>(goalBoxName);
-    _logBox  = logBox  ?? await ensureTypedBox<DailyLog>(logBoxName);
+    _logBox = logBox ?? await ensureTypedBox<DailyLog>(logBoxName);
   }
 
   /// 全量 Goal
@@ -31,17 +33,18 @@ class GoalProvider extends ChangeNotifier {
     return key;
   }
 
-  /// 更新
+  /// 更新（按照当前 Goal 模型字段进行 patch）
   Future<void> updateGoal(int key, Goal patch) async {
     final g = _goalBox.get(key);
     if (g == null) return;
+
     g
       ..title = patch.title
-      ..desc = patch.desc
-      ..color = patch.color
+      ..description = patch.description
       ..priority = patch.priority
-      ..startAt = patch.startAt
-      ..endAt = patch.endAt;
+      ..dueDate = patch.dueDate
+      ..kpis = patch.kpis;
+
     await g.save();
     notifyListeners();
   }
@@ -58,7 +61,10 @@ class GoalProvider extends ChangeNotifier {
   String exportAllToJson() {
     final list = _goalBox.keys.map((k) {
       final g = _goalBox.get(k as int)!;
-      return {'key': k, 'data': g.toMap()};
+      return {
+        'key': k,
+        'data': g.toMap(),
+      };
     }).toList();
     return const JsonEncoder.withIndent('  ').convert(list);
   }
@@ -69,7 +75,9 @@ class GoalProvider extends ChangeNotifier {
     for (final e in decoded) {
       final map = Map<String, dynamic>.from(e as Map);
       final key = map['key'] as int?;
-      final g = Goal.fromMap(Map<String, dynamic>.from(map['data'] as Map));
+      final g = Goal.fromMap(
+        Map<String, dynamic>.from(map['data'] as Map),
+      );
       if (key != null) {
         await _goalBox.put(key, g);
       } else {
