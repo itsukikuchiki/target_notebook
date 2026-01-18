@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    // Flutter Gradle Plugin 必须放在 Android / Kotlin 之后
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -19,11 +19,25 @@ android {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
+    // ===============================
+    // ✅ Flavor 定义（JP / TW）
+    // ===============================
+    flavorDimensions += "region"
+
+    productFlavors {
+        create("jp") {
+            dimension = "region"
+            applicationId = "com.sunriseinc.target_notebook.jp"
+            resValue("string", "app_name", "Target Notebook JP")
+        }
+        create("tw") {
+            dimension = "region"
+            applicationId = "com.sunriseinc.target_notebook.tw"
+            resValue("string", "app_name", "Target Notebook TW")
+        }
+    }
+
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.sunriseinc.target_notebook"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -32,8 +46,7 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // ⚠️ 正式上架前请替换为你自己的 signingConfig
             signingConfig = signingConfigs.getByName("debug")
         }
     }

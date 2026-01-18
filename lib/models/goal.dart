@@ -1,5 +1,6 @@
 import 'package:hive/hive.dart';
 import 'kpi.dart';
+
 part 'goal.g.dart';
 
 @HiveType(typeId: 2)
@@ -10,8 +11,9 @@ class Goal extends HiveObject {
   @HiveField(1)
   String? description;
 
+  /// 1 (最高) ~ 5
   @HiveField(2)
-  int priority; // 1(最高) ~ 5
+  int priority;
 
   @HiveField(3)
   DateTime createdAt;
@@ -22,6 +24,11 @@ class Goal extends HiveObject {
   @HiveField(5)
   List<KPI> kpis;
 
+  /// 目标颜色（可选），存储为 int（ARGB 或 0xFFxxxxxx）
+  /// 为 12/15 的“颜色 & 目标联动”预留
+  @HiveField(6)
+  int? color;
+
   Goal({
     required this.title,
     this.description,
@@ -29,6 +36,7 @@ class Goal extends HiveObject {
     DateTime? createdAt,
     this.dueDate,
     List<KPI>? kpis,
+    this.color,
   })  : createdAt = createdAt ?? DateTime.now(),
         kpis = kpis ?? [];
 
@@ -40,6 +48,7 @@ class Goal extends HiveObject {
         'createdAt': createdAt.toIso8601String(),
         'dueDate': dueDate?.toIso8601String(),
         'kpis': kpis.map((e) => e.toMap()).toList(),
+        'color': color,
       };
 
   static Goal fromMap(Map<String, dynamic> m) => Goal(
@@ -53,6 +62,7 @@ class Goal extends HiveObject {
         kpis: (m['kpis'] as List<dynamic>? ?? [])
             .map((e) => KPI.fromMap(Map<String, dynamic>.from(e as Map)))
             .toList(),
+        color: m['color'] as int?,
       );
 }
 

@@ -1,0 +1,15 @@
+// =====================================
+// TW Flavor - Debug Configuration
+// =====================================
+
+// 继承 Flutter 默认 Debug 设置（⚠️ 不要删）
+#include "Debug.xcconfig"
+
+// Bundle ID（台湾版 - Debug）
+PRODUCT_BUNDLE_IDENTIFIER = com.sunriseinc.target_notebook.tw
+
+// App 显示名（桌面图标名）
+APP_DISPLAY_NAME = Target Notebook TW
+
+// 可选：原生侧 Flavor 标识
+FLAVOR = TW

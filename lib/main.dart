@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:hive/hive.dart';
 
 // 1) Hive 初始化
 import 'core/hive_init.dart';
@@ -7,114 +8,156 @@ import 'core/hive_init.dart';
 // 2) Provider 层
 import 'providers/nav_provider.dart';
 import 'providers/goal_provider.dart';
+import 'providers/sub_goal_provider.dart';
 import 'providers/task_provider.dart';
 import 'providers/daily_log_provider.dart';
 
-// 3) UI Adapters（用于页面）
-import 'adapters/goal_adapter.dart' as vm;
-import 'adapters/task_adapter.dart' as vm;
-import 'adapters/dailylog_adapter.dart' as vm;
+// 3) UI Adapters
+import 'adapters/goal_adapter.dart' as goal_vm;
+import 'adapters/task_adapter.dart' as task_vm;
+import 'adapters/dailylog_adapter.dart' as log_vm;
+import 'adapters/goal_tree_adapter.dart';
 
-// 4) 模型（仅为种子数据所需，起别名 m，避免与 UI Adapter 同名）
+// 4) 模型（仅为种子数据所需）
 import 'models/goal.dart' as m;
 import 'models/task.dart' as m;
 import 'models/daily_log.dart' as m;
 
+// 5) App & Pages
 import 'app.dart';
-import 'package:hive/hive.dart'; // 造数要用到 Hive.box
+import 'pages/splash_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ 1) 初始化 Hive（注册适配器 + 打开所有 box）
+  // =========================
+  // 1) Hive 初始化
+  // =========================
   await initHive();
 
-  // ✅ 2) 初始化各 Provider（绑定已打开的 box）
+  // =========================
+  // 2) Providers
+  // =========================
   final goalP = GoalProvider();
+  final subGoalP = SubGoalProvider();
   final taskP = TaskProvider();
   final logP = DailyLogProvider();
+
   await goalP.init();
+  await subGoalP.init();
   await taskP.init();
   await logP.init();
 
-  // ✅ 3) （可选）种子数据：仅当三盒子都为空时造一份演示数据
+  // =========================
+  // 3) 种子数据（仅首次）
+  // =========================
   await _seedIfEmpty();
 
-  // ✅ 4) 构造 UI 适配器（注意用 vm. 前缀）
+  // =========================
+  // 4) UI Adapters
+  // =========================
   final nav = NavProvider();
-  final goalVM = vm.GoalAdapter(goalP, taskP);
-  final taskVM = vm.TaskAdapter(taskP);
-  // ✅ DailyLogAdapter 现在只接收一个 DailyLogProvider 实例
-  final logVM = vm.DailyLogAdapter(logP);
+  final goalVM = goal_vm.GoalAdapter(goalP, taskP);
+  final taskVM = task_vm.TaskAdapter(taskP);
+  final logVM = log_vm.DailyLogAdapter(logP);
 
-  // ✅ 5) 注入并启动
+  // 目标树 Adapter（My Journey / Insight / Calendar 共用）
+  final goalTreeVM = GoalTreeAdapter(goalP, subGoalP, taskP);
+
+  // =========================
+  // 5) 注入 & 启动
+  // =========================
   runApp(
     MultiProvider(
       providers: [
+        // navigation
         ChangeNotifierProvider.value(value: nav),
+
+        // core providers
         ChangeNotifierProvider.value(value: goalP),
+        ChangeNotifierProvider.value(value: subGoalP),
         ChangeNotifierProvider.value(value: taskP),
         ChangeNotifierProvider.value(value: logP),
+
+        // ui adapters
         ChangeNotifierProvider.value(value: goalVM),
         ChangeNotifierProvider.value(value: taskVM),
         ChangeNotifierProvider.value(value: logVM),
+
+        // goal tree
+        ChangeNotifierProvider.value(value: goalTreeVM),
       ],
-      child: const TargetNotebookApp(),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: const SplashPage(),
+        routes: {
+          '/home': (_) => const TargetNotebookApp(),
+        },
+      ),
     ),
   );
 }
 
-// ====== 仅本地演示用的种子数据：若三盒子为空则自动造数 ======
+// =======================================================
+// 仅本地演示用的种子数据（首次启动）
+// =======================================================
 Future<void> _seedIfEmpty() async {
   final goalBox = Hive.box<m.Goal>(AppBoxes.goal);
   final taskBox = Hive.box<m.Task>(AppBoxes.task);
   final logBox = Hive.box<m.DailyLog>(AppBoxes.dailyLog);
 
-  if (goalBox.isEmpty && taskBox.isEmpty && logBox.isEmpty) {
-    final g = m.Goal(
-      title: '通过 FP2',
-      description: '两个月内通过考试',
+  if (goalBox.isNotEmpty || taskBox.isNotEmpty || logBox.isNotEmpty) return;
+
+  final g = m.Goal(
+    title: '通过 FP2',
+    description: '两个月内通过考试',
+    priority: 1,
+    color: 0xFF5C6BC0,
+  );
+  final gKey = await goalBox.add(g);
+
+  final now = DateTime.now();
+
+  await taskBox.add(
+    m.Task(
+      title: '晨跑 3km',
+      goalId: gKey,
+      startAt: now,
+      done: true,
+      priority: 2,
+    ),
+  );
+
+  await taskBox.add(
+    m.Task(
+      title: '复习章节 5',
+      goalId: gKey,
+      startAt: now,
       priority: 1,
-    );
-    final gKey = await goalBox.add(g);
+    ),
+  );
 
-    final now = DateTime.now();
-    await taskBox.add(
-      m.Task(
-        title: '晨跑 3km',
-        goalId: gKey,
-        startAt: now,
-        done: true,
-      ),
-    );
-    await taskBox.add(
-      m.Task(
-        title: '复习章节 5',
-        goalId: gKey,
-        startAt: now,
-      ),
-    );
-    await taskBox.add(
-      m.Task(
-        title: '错题整理 30min',
-        goalId: gKey,
-        startAt: now.add(const Duration(days: 1)),
-      ),
-    );
+  await taskBox.add(
+    m.Task(
+      title: '错题整理 30min',
+      goalId: gKey,
+      startAt: now.add(const Duration(days: 1)),
+      priority: 3,
+    ),
+  );
 
-    for (int i = 0; i < 3; i++) {
-      final d = DateTime(now.year, now.month, now.day - i, 10, 0, 0);
-      await logBox.add(
-        m.DailyLog(
-          date: d,
-          content: i == 0
-              ? '今天状态不错，完成关键任务。'
-              : (i == 1 ? '注意休息，下午效率低。' : '需要更早开始专注时段。'),
-          goalId: gKey,
-          minutes: 60 * (i + 1),
-        ),
-      );
-    }
+  for (int i = 0; i < 3; i++) {
+    final d = DateTime(now.year, now.month, now.day - i, 10, 0);
+    await logBox.add(
+      m.DailyLog(
+        date: d,
+        content: i == 0
+            ? '今天状态不错，完成关键任务。'
+            : (i == 1 ? '注意休息，下午效率低。' : '需要更早开始专注时段。'),
+        goalId: gKey,
+        minutes: 60 * (i + 1),
+      ),
+    );
   }
 }
 

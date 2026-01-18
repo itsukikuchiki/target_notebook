@@ -1,5 +1,5 @@
 name: target_notebook
-description: "A new Flutter project."
+description: "Target Notebook"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -10,6 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   provider: ^6.1.2
   shared_preferences: ^2.3.2
   intl: ^0.20.2
@@ -25,7 +26,18 @@ dev_dependencies:
   hive_generator: ^2.0.1
   build_runner: ^2.4.13
   test: ^1.25.15
+  flutter_launcher_icons: ^0.13.1   # ✅ 必须有
+
+# ✅ App Icon 生成配置
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/brand/app_icon.png
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/holidays/
+    - assets/brand/
 

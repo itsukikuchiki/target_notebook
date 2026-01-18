@@ -23,13 +23,14 @@ class GoalAdapter extends TypeAdapter<Goal> {
       createdAt: fields[3] as DateTime?,
       dueDate: fields[4] as DateTime?,
       kpis: (fields[5] as List?)?.cast<KPI>(),
+      color: fields[6] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Goal obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.title)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class GoalAdapter extends TypeAdapter<Goal> {
       ..writeByte(4)
       ..write(obj.dueDate)
       ..writeByte(5)
-      ..write(obj.kpis);
+      ..write(obj.kpis)
+      ..writeByte(6)
+      ..write(obj.color);
   }
 
   @override

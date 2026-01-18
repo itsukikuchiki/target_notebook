@@ -29,3 +29,4 @@ Future<void> initHive() async {
   await Hive.openBox<DailyLog>(AppBoxes.dailyLog);
 }
 
+

@@ -23,8 +23,22 @@ class GoalProvider extends ChangeNotifier {
     _logBox = logBox ?? await ensureTypedBox<DailyLog>(logBoxName);
   }
 
-  /// 全量 Goal
+  /// 全量 Goal（原样，不排序，保留兼容）
   List<Goal> get goals => _goalBox.values.toList();
+
+  /// 新增：按 priority 排序后的 goals（priority 小在前）
+  List<Goal> get goalsSorted {
+    final list = goals;
+    list.sort((a, b) {
+      final p = a.priority.compareTo(b.priority);
+      if (p != 0) return p;
+      // secondary: createdAt（早的在前）
+      final c = a.createdAt.compareTo(b.createdAt);
+      if (c != 0) return c;
+      return a.title.compareTo(b.title);
+    });
+    return list;
+  }
 
   /// 新增
   Future<int> addGoal(Goal g) async {
@@ -43,8 +57,18 @@ class GoalProvider extends ChangeNotifier {
       ..description = patch.description
       ..priority = patch.priority
       ..dueDate = patch.dueDate
-      ..kpis = patch.kpis;
+      ..kpis = patch.kpis
+      ..color = patch.color; // ✅ W5: 颜色字段别漏了
 
+    await g.save();
+    notifyListeners();
+  }
+
+  /// 新增：仅更新颜色（给颜色选择器用）
+  Future<void> setGoalColor(int key, int? color) async {
+    final g = _goalBox.get(key);
+    if (g == null) return;
+    g.color = color;
     await g.save();
     notifyListeners();
   }
@@ -57,7 +81,39 @@ class GoalProvider extends ChangeNotifier {
 
   Goal? getByKey(int key) => _goalBox.get(key);
 
-  /// —— 可选：导出 / 导入（便于备份）——
+  // =========================================================
+  // Color helpers (12/15)
+  // =========================================================
+
+  /// 返回“有效颜色”（若未设置则返回默认色）
+  /// 默认色使用一组稳定的颜色表 + key/seed 取模，保证同一个 goal 每次显示一致
+  int effectiveColorInt(Goal g, {int? goalKey, int seed = 0}) {
+    if (g.color != null) return g.color!;
+
+    // 这里用 Material 常见色（ARGB），不依赖 Theme，稳定且可用
+    const defaults = <int>[
+      0xFFEF5350, // red
+      0xFFAB47BC, // purple
+      0xFF5C6BC0, // indigo
+      0xFF29B6F6, // lightBlue
+      0xFF26A69A, // teal
+      0xFF66BB6A, // green
+      0xFFFFCA28, // amber
+      0xFFFFA726, // orange
+      0xFF8D6E63, // brown
+      0xFF78909C, // blueGrey
+    ];
+
+    // goalKey 优先（更稳定），否则用 title hash
+    final base = (goalKey ?? g.title.hashCode) + seed;
+    final idx = base.abs() % defaults.length;
+    return defaults[idx];
+  }
+
+  // =========================================================
+  // Import / Export
+  // =========================================================
+
   String exportAllToJson() {
     final list = _goalBox.keys.map((k) {
       final g = _goalBox.get(k as int)!;

@@ -5,6 +5,11 @@ import 'pages/insight_page.dart';
 import 'pages/reflection_page.dart';
 import 'widgets/plus_panel.dart';
 
+// 👇 新增：编辑页路由
+import 'pages/editors/task_edit_page.dart';
+import 'pages/editors/subgoal_edit_page.dart';
+import 'pages/editors/goal_edit_page.dart';
+
 /// 对外暴露的根 Widget，供 main.dart 和测试使用。
 ///
 /// 注意：这个 Widget **不再负责 Hive / Provider 初始化**，
@@ -21,6 +26,14 @@ class TargetNotebookApp extends StatelessWidget {
         useMaterial3: true,
         colorSchemeSeed: Colors.indigo,
       ),
+
+      // ✅【关键】集中声明路由
+      routes: {
+        TaskEditPage.route: (_) => const TaskEditPage(),
+        SubGoalEditPage.route: (_) => const SubGoalEditPage(),
+        GoalEditPage.route: (_) => const GoalEditPage(),
+      },
+
       home: const _MainScaffold(),
     );
   }

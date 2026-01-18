@@ -25,13 +25,24 @@ class TaskAdapter extends TypeAdapter<Task> {
       endAt: fields[5] as DateTime?,
       done: fields[6] as bool,
       isTodayTop3: fields[7] as bool,
+      priority: fields[8] as int,
+      isAllDay: fields[9] as bool,
+      location: fields[10] as String?,
+      participantEmailsRaw: fields[11] as String?,
+      hasAlarm: fields[12] as bool,
+      alarmAt: fields[13] as DateTime?,
+      iconKey: fields[14] as String?,
+      completion: fields[15] as double,
+      deadline: fields[16] as DateTime?,
+      photoPath: fields[17] as String?,
+      color: fields[18] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Task obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.title)
       ..writeByte(1)
@@ -47,7 +58,29 @@ class TaskAdapter extends TypeAdapter<Task> {
       ..writeByte(6)
       ..write(obj.done)
       ..writeByte(7)
-      ..write(obj.isTodayTop3);
+      ..write(obj.isTodayTop3)
+      ..writeByte(8)
+      ..write(obj.priority)
+      ..writeByte(9)
+      ..write(obj.isAllDay)
+      ..writeByte(10)
+      ..write(obj.location)
+      ..writeByte(11)
+      ..write(obj.participantEmailsRaw)
+      ..writeByte(12)
+      ..write(obj.hasAlarm)
+      ..writeByte(13)
+      ..write(obj.alarmAt)
+      ..writeByte(14)
+      ..write(obj.iconKey)
+      ..writeByte(15)
+      ..write(obj.completion)
+      ..writeByte(16)
+      ..write(obj.deadline)
+      ..writeByte(17)
+      ..write(obj.photoPath)
+      ..writeByte(18)
+      ..write(obj.color);
   }
 
   @override

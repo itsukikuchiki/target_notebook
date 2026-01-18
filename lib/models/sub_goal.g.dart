@@ -21,13 +21,15 @@ class SubGoalAdapter extends TypeAdapter<SubGoal> {
       title: fields[1] as String,
       description: fields[2] as String?,
       orderIndex: fields[3] as int,
+      priority: fields[4] as int,
+      color: fields[5] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SubGoal obj) {
     writer
-      ..writeByte(4)
+      ..writeByte(6)
       ..writeByte(0)
       ..write(obj.goalId)
       ..writeByte(1)
@@ -35,7 +37,11 @@ class SubGoalAdapter extends TypeAdapter<SubGoal> {
       ..writeByte(2)
       ..write(obj.description)
       ..writeByte(3)
-      ..write(obj.orderIndex);
+      ..write(obj.orderIndex)
+      ..writeByte(4)
+      ..write(obj.priority)
+      ..writeByte(5)
+      ..write(obj.color);
   }
 
   @override
