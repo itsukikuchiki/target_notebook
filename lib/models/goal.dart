@@ -66,3 +66,4 @@ class Goal extends HiveObject {
       );
 }
 
+

@@ -13,6 +13,7 @@ import 'package:target_notebook/providers/daily_log_provider.dart';
 import 'package:target_notebook/adapters/dailylog_adapter.dart' as ui;
 
 import '../hive_test_util.dart';
+import '../helpers/hive_test_env.dart';
 
 void main() {
   late Directory dir;

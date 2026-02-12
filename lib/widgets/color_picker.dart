@@ -1,21 +1,25 @@
 import 'package:flutter/material.dart';
 
-/// =======================
-/// Color Picker (Simple & Reusable)
-/// =======================
-///
-/// 用法示例：
-///
-/// ColorPicker(
-///   selected: _color,
-///   onChanged: (c) => setState(() => _color = c),
-/// )
-///
-/// - selected == null 表示「未设置 / 继承父级颜色」
-/// - 返回值为 int?（Color.value）
+/// 轻量颜色选择器：
+/// - selected: 当前选中颜色（ARGB int），null 表示“未选择 / 继承默认”
+/// - onChanged: 点击颜色或清除时回调
 class ColorPicker extends StatelessWidget {
   final int? selected;
   final ValueChanged<int?> onChanged;
+
+  /// 可复用的稳定色板（与你 GoalProvider.effectiveColorInt 同风格）
+  static const List<int> palette = <int>[
+    0xFFEF5350, // red
+    0xFFAB47BC, // purple
+    0xFF5C6BC0, // indigo
+    0xFF29B6F6, // lightBlue
+    0xFF26A69A, // teal
+    0xFF66BB6A, // green
+    0xFFFFCA28, // amber
+    0xFFFFA726, // orange
+    0xFF8D6E63, // brown
+    0xFF78909C, // blueGrey
+  ];
 
   const ColorPicker({
     super.key,
@@ -23,118 +27,49 @@ class ColorPicker extends StatelessWidget {
     required this.onChanged,
   });
 
-  static const List<Color> _presetColors = [
-    Color(0xFF5C6BC0), // Indigo
-    Color(0xFF42A5F5), // Blue
-    Color(0xFF26A69A), // Teal
-    Color(0xFF66BB6A), // Green
-    Color(0xFFFFCA28), // Amber
-    Color(0xFFFFA726), // Orange
-    Color(0xFFEF5350), // Red
-    Color(0xFFEC407A), // Pink
-    Color(0xFFAB47BC), // Purple
-    Color(0xFF8D6E63), // Brown
-    Color(0xFF78909C), // Blue Grey
-    Color(0xFF90A4AE), // Grey
-  ];
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    Widget chip(int c) {
+      final isSelected = selected == c;
+
+      return InkWell(
+        onTap: () => onChanged(c),
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: 30,
+          height: 30,
+          margin: const EdgeInsets.only(right: 10, bottom: 10),
+          decoration: BoxDecoration(
+            color: Color(c),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isSelected ? Colors.black : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: isSelected
+              ? const Icon(Icons.check, size: 16, color: Colors.white)
+              : null,
+        ),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '颜色',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
+        const Text('颜色（可选）'),
         const SizedBox(height: 8),
-
         Wrap(
-          spacing: 10,
-          runSpacing: 10,
           children: [
-            // ---------- 清除 / 继承 ----------
-            _ColorDot(
-              color: null,
-              selected: selected == null,
-              label: '继承',
-              onTap: () => onChanged(null),
-              borderColor: theme.dividerColor,
+            ...palette.map(chip),
+            TextButton.icon(
+              onPressed: () => onChanged(null),
+              icon: const Icon(Icons.backspace_outlined, size: 18),
+              label: const Text('清除'),
             ),
-
-            // ---------- 预设颜色 ----------
-            for (final c in _presetColors)
-              _ColorDot(
-                color: c,
-                selected: selected == c.value,
-                onTap: () => onChanged(c.value),
-              ),
           ],
         ),
       ],
-    );
-  }
-}
-
-/// =======================
-/// Single Color Dot
-/// =======================
-
-class _ColorDot extends StatelessWidget {
-  final Color? color;
-  final bool selected;
-  final VoidCallback onTap;
-  final String? label;
-  final Color? borderColor;
-
-  const _ColorDot({
-    required this.color,
-    required this.selected,
-    required this.onTap,
-    this.label,
-    this.borderColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final border = selected
-        ? Border.all(
-            color: Theme.of(context).colorScheme.primary,
-            width: 2,
-          )
-        : Border.all(
-            color: borderColor ?? Colors.transparent,
-          );
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color ?? Colors.transparent,
-              border: border,
-            ),
-            child: color == null
-                ? const Icon(Icons.layers, size: 16, color: Colors.black45)
-                : null,
-          ),
-          if (label != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              label!,
-              style: const TextStyle(fontSize: 10, color: Colors.black54),
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

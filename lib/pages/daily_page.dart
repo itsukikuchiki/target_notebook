@@ -4,6 +4,11 @@ import 'package:provider/provider.dart';
 
 import '../adapters/dailylog_adapter.dart';
 import '../adapters/task_adapter.dart';
+import '../adapters/goal_tree_adapter.dart';
+
+import '../models/task.dart' show Task hide TaskAdapter;
+import '../providers/task_provider.dart';
+
 import '../services/holiday_service.dart';
 import 'editors/task_edit_page.dart';
 
@@ -20,24 +25,18 @@ class _DailyPageState extends State<DailyPage> {
   _DailyView _view = _DailyView.week;
   DateTime _selectedDate = DateTime.now();
 
-  // 计时器状态
   int? _timerTaskId;
   bool _timerRunning = false;
 
-  // 快速日志
   final TextEditingController _quickLogController = TextEditingController();
-
-  // 新任务
   final TextEditingController _newTaskTitleController = TextEditingController();
 
-  // ✅ 祝日（DailyPage 只缓存“当前可同步渲染”的结果）
   final Map<String, String> _holidayCache = {}; // key: YYYY-MM-DD
-  bool _holidayLoaded = false; // 是否已完成一次加载（用于 AppBar “加载中…”）
+  bool _holidayLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    // ✅ 初次进入：预加载当前年（以及前后一年，跨年不抖），并填充周条可用缓存
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refreshHolidayCacheForCurrentView();
       if (mounted) setState(() => _holidayLoaded = true);
@@ -51,7 +50,7 @@ class _DailyPageState extends State<DailyPage> {
     super.dispose();
   }
 
-  // ---------------- Holiday (via HolidayService) ----------------
+  // ---------------- Holiday ----------------
 
   String _dateKey(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -76,15 +75,11 @@ class _DailyPageState extends State<DailyPage> {
     return List.generate(7, (i) => startOfWeek.add(Duration(days: i)));
   }
 
-  /// 根据当前 view（week/month）刷新页面缓存：
-  /// - week：缓存本周 7 天（用于红字/节日名/点）
-  /// - month：内置 CalendarDatePicker 无法逐格渲染红字，所以这里只保证 header 的节日名可读
   Future<void> _refreshHolidayCacheForCurrentView() async {
     final selected = _dateOnly(_selectedDate);
 
     await _prefetchYearsAround(selected);
 
-    // week：填充一周缓存，build 中可同步使用
     if (_view == _DailyView.week) {
       final days = _visibleDaysForWeekStrip(selected);
       for (final d in days) {
@@ -99,7 +94,6 @@ class _DailyPageState extends State<DailyPage> {
       return;
     }
 
-    // month：只确保 selected 当天有缓存（用于 header 显示）
     final name = await HolidayService.I.nameOf(selected);
     final k = _dateKey(selected);
     if (name != null && name.trim().isNotEmpty) {
@@ -112,7 +106,7 @@ class _DailyPageState extends State<DailyPage> {
   Future<void> _setSelectedDate(DateTime d) async {
     setState(() => _selectedDate = d);
     await _refreshHolidayCacheForCurrentView();
-    if (mounted) setState(() {}); // 触发周条红字/标题刷新
+    if (mounted) setState(() {});
   }
 
   Future<void> _setView(_DailyView v) async {
@@ -161,10 +155,7 @@ class _DailyPageState extends State<DailyPage> {
               children: [
                 _buildViewToggle(),
                 const SizedBox(height: 12),
-
-                // ✅ W5 12/13：日历（月/周）+ 当天标记 + 任务点 + 祝日
-                _buildCalendar(taskAdapter),
-
+                _buildCalendar(),
                 const SizedBox(height: 16),
                 _buildKpiCard(daily),
                 const SizedBox(height: 16),
@@ -204,7 +195,7 @@ class _DailyPageState extends State<DailyPage> {
 
   // ---------------- Calendar (Week / Month) ----------------
 
-  Widget _buildCalendar(TaskAdapter taskAdapter) {
+  Widget _buildCalendar() {
     final selected = _dateOnly(_selectedDate);
     final holiday = _holidayName(selected);
 
@@ -215,7 +206,6 @@ class _DailyPageState extends State<DailyPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // header
             Row(
               children: [
                 Text(
@@ -237,15 +227,10 @@ class _DailyPageState extends State<DailyPage> {
               ],
             ),
             const SizedBox(height: 8),
-
-            if (_view == _DailyView.month)
-              _buildMonthPicker(taskAdapter)
-            else
-              _buildWeekStrip(taskAdapter),
-
+            if (_view == _DailyView.month) _buildMonthPicker() else _buildWeekStrip(),
             const SizedBox(height: 8),
             const Text(
-              '● 表示当天有日程/任务；红色日期为祝日（由 HolidayService 提供）',
+              '● 表示当天有任务；点颜色=任务色（优先）或目标色；红字为祝日',
               style: TextStyle(fontSize: 11, color: Colors.black54),
             ),
           ],
@@ -254,20 +239,48 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 
-  Widget _buildMonthPicker(TaskAdapter taskAdapter) {
-    // CalendarDatePicker 是 Flutter 内置月历（稳定、零依赖）
+  Widget _buildMonthPicker() {
     return CalendarDatePicker(
       initialDate: _dateOnly(_selectedDate),
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
       onDateChanged: (d) => _setSelectedDate(d),
-      selectableDayPredicate: (day) => true,
     );
   }
 
-  Widget _buildWeekStrip(TaskAdapter taskAdapter) {
+  Widget _buildWeekStrip() {
     final selected = _dateOnly(_selectedDate);
     final days = _visibleDaysForWeekStrip(selected);
+
+    // ✅ 测试环境可能没有提供 GoalTreeAdapter / TaskProvider：降级为空，不要抛 ProviderNotFound
+    final GoalTreeAdapter? goalTree = Provider.of<GoalTreeAdapter?>(context);
+    final TaskProvider? taskProvider = Provider.of<TaskProvider?>(context);
+
+    final Map<int, Color> goalColorById = {
+      for (final g in (goalTree?.goals ?? const [])) g.goalKey: g.color,
+    };
+
+    List<Color> _dayDotColors(DateTime day) {
+      final List<Task> list = taskProvider?.tasksForDate(day) ?? const <Task>[];
+      if (list.isEmpty) return const [];
+
+      final sorted = [...list]..sort(GoalTreeAdapter.taskSort);
+
+      final colors = <Color>[];
+      for (final t in sorted) {
+        final Color c = (t.color != null)
+            ? Color(t.color!)
+            : (t.goalId != null && goalColorById[t.goalId!] != null)
+                ? goalColorById[t.goalId!]!
+                : Theme.of(context).colorScheme.primary;
+
+        if (!colors.any((x) => x.value == c.value)) {
+          colors.add(c);
+        }
+        if (colors.length >= 3) break;
+      }
+      return colors;
+    }
 
     return Row(
       children: [
@@ -278,11 +291,11 @@ class _DailyPageState extends State<DailyPage> {
         ),
         Expanded(
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: days.map((d) {
               final isSelected = _isSameDay(d, selected);
               final isHoliday = _isHoliday(d);
-              final hasTasks = taskAdapter.tasksForDate(d).isNotEmpty;
+
+              final dotColors = _dayDotColors(d);
 
               return Expanded(
                 child: InkWell(
@@ -321,12 +334,26 @@ class _DailyPageState extends State<DailyPage> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        // “点”展示
                         SizedBox(
                           height: 10,
-                          child: hasTasks
-                              ? const Text('●', style: TextStyle(fontSize: 10))
-                              : const SizedBox.shrink(),
+                          child: dotColors.isEmpty
+                              ? const SizedBox.shrink()
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: dotColors
+                                      .map(
+                                        (c) => Container(
+                                          width: 6,
+                                          height: 6,
+                                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                                          decoration: BoxDecoration(
+                                            color: c,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
                         ),
                       ],
                     ),
@@ -388,10 +415,7 @@ class _DailyPageState extends State<DailyPage> {
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            Text(
-              tip,
-              key: const Key('daily.kpi.tip'),
-            ),
+            Text(tip, key: const Key('daily.kpi.tip')),
           ],
         ),
       ),
@@ -423,12 +447,10 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 
-  // ---------------- 任务列表 + 计时器 + 点击进入详情 ----------------
+  // ---------------- 任务列表 ----------------
 
   Widget _buildTaskList(TaskAdapter taskAdapter, List<TaskVM> tasks) {
-    if (tasks.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (tasks.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,11 +494,8 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 
-  // ⚠️ 这个 subtitle 依赖你自己的 TaskVM 扩展字段（你项目里已有的话就能编译）
   Widget? _buildTaskSubtitle(TaskVM t) {
     final parts = <String>[];
-
-    // 时间
     try {
       if ((t as dynamic).isAllDay == true) {
         parts.add('全日');
@@ -484,11 +503,9 @@ class _DailyPageState extends State<DailyPage> {
         final s = (t as dynamic).startAt as DateTime?;
         final e = (t as dynamic).endAt as DateTime?;
         if (s != null) {
-          final ss =
-              '${s.hour.toString().padLeft(2, '0')}:${s.minute.toString().padLeft(2, '0')}';
+          final ss = '${s.hour.toString().padLeft(2, '0')}:${s.minute.toString().padLeft(2, '0')}';
           if (e != null) {
-            final ee =
-                '${e.hour.toString().padLeft(2, '0')}:${e.minute.toString().padLeft(2, '0')}';
+            final ee = '${e.hour.toString().padLeft(2, '0')}:${e.minute.toString().padLeft(2, '0')}';
             parts.add('$ss-$ee');
           } else {
             parts.add(ss);
@@ -507,9 +524,7 @@ class _DailyPageState extends State<DailyPage> {
 
       final comp = (t as dynamic).completion as double?;
       if (comp != null) parts.add('${(comp * 100).round()}%');
-    } catch (_) {
-      // 如果 TaskVM 还没扩展这些字段，不显示 subtitle，不影响运行
-    }
+    } catch (_) {}
 
     if (parts.isEmpty) return null;
     return Text(parts.join(' · '));
@@ -554,9 +569,7 @@ class _DailyPageState extends State<DailyPage> {
                   minutes: 25,
                   taskId: task.id,
                 );
-                if (mounted) {
-                  Navigator.of(ctx).pop();
-                }
+                if (mounted) Navigator.of(ctx).pop();
               },
               child: const Text('保存'),
             ),
@@ -580,9 +593,7 @@ class _DailyPageState extends State<DailyPage> {
             TextField(
               key: const Key('daily.quicklog.text'),
               controller: _quickLogController,
-              decoration: const InputDecoration(
-                hintText: '写点今天的投入 / 反思...',
-              ),
+              decoration: const InputDecoration(hintText: '写点今天的投入 / 反思...'),
               minLines: 1,
               maxLines: 3,
             ),
@@ -625,9 +636,7 @@ class _DailyPageState extends State<DailyPage> {
           content: TextField(
             key: const Key('daily.addTask.title'),
             controller: _newTaskTitleController,
-            decoration: const InputDecoration(
-              labelText: '任务标题',
-            ),
+            decoration: const InputDecoration(labelText: '任务标题'),
           ),
           actions: [
             TextButton(
@@ -644,15 +653,10 @@ class _DailyPageState extends State<DailyPage> {
                 if (title.isEmpty) return;
 
                 final taskAdapter = ctx.read<TaskAdapter>();
-                await taskAdapter.newTask(
-                  title: title,
-                  date: _selectedDate,
-                );
-                _newTaskTitleController.clear();
+                await taskAdapter.newTask(title: title, date: _selectedDate);
 
-                if (mounted) {
-                  Navigator.of(ctx).pop();
-                }
+                _newTaskTitleController.clear();
+                if (mounted) Navigator.of(ctx).pop();
               },
               child: const Text('保存'),
             ),
@@ -662,6 +666,4 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 }
-
-
 

@@ -24,8 +24,7 @@ class GoalNode {
   final int totalTasks;
   final int doneTasks;
 
-  double get progress =>
-      totalTasks == 0 ? 0.0 : doneTasks / totalTasks;
+  double get progress => totalTasks == 0 ? 0.0 : doneTasks / totalTasks;
 
   GoalNode({
     required this.goalKey,
@@ -79,8 +78,7 @@ class GoalTreeAdapter extends ChangeNotifier {
       final gKey = g.key;
       if (gKey is! int) continue;
 
-      final goalColorInt =
-          goalP.effectiveColorInt(g, goalKey: gKey);
+      final goalColorInt = goalP.effectiveColorInt(g, goalKey: gKey);
       final goalColor = Color(goalColorInt);
 
       final subGoals = subGoalP.subGoalsByGoal(gKey);
@@ -97,7 +95,7 @@ class GoalTreeAdapter extends ChangeNotifier {
         if (sgKey is! int) continue;
 
         final sgTasks = taskP.tasksBySubGoal(sgKey).toList()
-          ..sort(_taskSort);
+          ..sort(GoalTreeAdapter.taskSort);
 
         total += sgTasks.length;
         done += sgTasks.where((t) => t.done).length;
@@ -113,10 +111,8 @@ class GoalTreeAdapter extends ChangeNotifier {
       }
 
       // ---------- Direct Tasks ----------
-      final directTasks = allTasks
-          .where((t) => t.subGoalId == null)
-          .toList()
-        ..sort(_taskSort);
+      final directTasks = allTasks.where((t) => t.subGoalId == null).toList()
+        ..sort(GoalTreeAdapter.taskSort);
 
       total += directTasks.length;
       done += directTasks.where((t) => t.done).length;
@@ -139,7 +135,7 @@ class GoalTreeAdapter extends ChangeNotifier {
   }
 
   /// 统一任务排序规则（My Journey / Insight / 日历都能复用）
-  static int _taskSort(Task a, Task b) {
+  static int taskSort(Task a, Task b) {
     // 1) 未完成优先
     if (a.done != b.done) return a.done ? 1 : -1;
 

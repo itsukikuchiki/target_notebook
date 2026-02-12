@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// ✅ 引入真实 UI 适配器类型（注意不要引入 models 下的同名类型）
-import 'package:target_notebook/adapters/goal_adapter.dart' as ui;
-import 'package:target_notebook/adapters/task_adapter.dart' as ui;
-import 'package:target_notebook/adapters/dailylog_adapter.dart' as ui;
+// ✅ 分开前缀，避免重复 as ui
+import 'package:target_notebook/adapters/goal_adapter.dart' as goal_ui;
+import 'package:target_notebook/adapters/task_adapter.dart' as task_ui;
+import 'package:target_notebook/adapters/dailylog_adapter.dart' as log_ui;
 
 // ✅ 引入真实 Provider 类型（构造 super 的占位，不会触发 Hive）
 import 'package:target_notebook/providers/goal_provider.dart';
@@ -19,34 +19,36 @@ class _DummyTaskProvider extends TaskProvider {}
 class _DummyDailyLogProvider extends DailyLogProvider {}
 
 // ====== 公共：构造 GoalVM 便捷函数 ======
-ui.GoalVM goal(
+goal_ui.GoalVM goal(
   int id,
   String title,
   double progress,
   int done,
   int total,
 ) =>
-    ui.GoalVM(
+    goal_ui.GoalVM(
       id: id,
       title: title,
       progress: progress,
       tasksCount: total,
       doneCount: done,
+      // ✅ W5 新增必填
+      priority: 3,
     );
 
 // ====== Fake：GoalAdapter（类型上 = 真实 GoalAdapter）======
-class FakeGoalAdapter extends ui.GoalAdapter {
+class FakeGoalAdapter extends goal_ui.GoalAdapter {
   FakeGoalAdapter() : super(_DummyGoalProvider(), _DummyTaskProvider());
 
-  List<ui.GoalVM> _list = const [];
+  List<goal_ui.GoalVM> _list = const [];
 
-  set seed(List<ui.GoalVM> v) {
+  set seed(List<goal_ui.GoalVM> v) {
     _list = v;
     notifyListeners();
   }
 
   @override
-  List<ui.GoalVM> get goalsVM => _list;
+  List<goal_ui.GoalVM> get goalsVM => _list;
 }
 
 // ====== Fake：TaskAdapter（类型上 = 真实 TaskAdapter）======
@@ -59,7 +61,7 @@ class FakeTaskVM {
   FakeTaskVM(this.id, this.title, this.date, this.done);
 }
 
-class FakeTaskAdapter extends ui.TaskAdapter {
+class FakeTaskAdapter extends task_ui.TaskAdapter {
   FakeTaskAdapter() : super(_DummyTaskProvider());
 
   final Map<DateTime, List<FakeTaskVM>> _table = {};
@@ -71,19 +73,18 @@ class FakeTaskAdapter extends ui.TaskAdapter {
   }
 
   @override
-  List<ui.TaskVM> tasksForDate(DateTime d) {
+  List<task_ui.TaskVM> tasksForDate(DateTime d) {
     final list = _table[DateUtils.dateOnly(d)] ?? const <FakeTaskVM>[];
-    final result = <ui.TaskVM>[
-      for (final t in list) ui.TaskVM(t.id, t.title, t.date, t.done),
+    return <task_ui.TaskVM>[
+      for (final t in list) task_ui.TaskVM(t.id, t.title, t.date, t.done),
     ];
-    return result;
   }
 
-  @override
-  List<ui.TaskVM> tasksForDay(DateTime d) => tasksForDate(d);
+  // 如果你项目里没有 tasksForDay，就别加 @override（避免 mismatch）
+  List<task_ui.TaskVM> tasksForDay(DateTime d) => tasksForDate(d);
 
   @override
-  List<ui.TaskVM> top3ForDate(DateTime d) {
+  List<task_ui.TaskVM> top3ForDate(DateTime d) {
     final list = tasksForDate(d);
     if (list.length <= 3) return list;
     return list.take(3).toList();
@@ -91,13 +92,12 @@ class FakeTaskAdapter extends ui.TaskAdapter {
 
   @override
   Future<void> toggleTaskDone(int id, bool v) async {
-    // 简化：仅通知刷新，不改内部数据
     notifyListeners();
   }
 }
 
 // ====== 公共：反思 VM 的公开桩类型（不要用私有前缀 _，否则跨文件不可见）======
-class ReflectionStub implements ui.ReflectionVM {
+class ReflectionStub implements log_ui.ReflectionVM {
   @override
   final DateTime date;
 
@@ -115,32 +115,30 @@ class ReflectionStub implements ui.ReflectionVM {
 }
 
 // ====== Fake：DailyLogAdapter（类型上 = 真实 DailyLogAdapter）======
-class FakeDailyLogAdapter extends ui.DailyLogAdapter {
-  // ✅ 真实 DailyLogAdapter 现在只接收一个 DailyLogProvider
+class FakeDailyLogAdapter extends log_ui.DailyLogAdapter {
   FakeDailyLogAdapter() : super(_DummyDailyLogProvider());
 
-  ui.WeeklyVM _weekly =
-      const ui.WeeklyVM({}, 0.0, '本周还没有记录投入时长，开始第一条吧！');
-  List<ui.ReflectionVM> _refs = const [];
+  log_ui.WeeklyVM _weekly =
+      const log_ui.WeeklyVM({}, 0.0, '本周还没有记录投入时长，开始第一条吧！');
+  List<log_ui.ReflectionVM> _refs = const [];
 
-  set weeklySeed(ui.WeeklyVM v) {
+  set weeklySeed(log_ui.WeeklyVM v) {
     _weekly = v;
     notifyListeners();
   }
 
-  set reflectionsSeed(List<ui.ReflectionVM> v) {
+  set reflectionsSeed(List<log_ui.ReflectionVM> v) {
     _refs = v;
     notifyListeners();
   }
 
   @override
-  ui.WeeklyVM weeklyStats({DateTime? now}) => _weekly;
+  log_ui.WeeklyVM weeklyStats({DateTime? now}) => _weekly;
 
   @override
-  List<ui.ReflectionVM> latestReflections({int limit = 10}) => _refs;
+  List<log_ui.ReflectionVM> latestReflections({int limit = 10}) => _refs;
 }
 
 // ====== Finder 辅助 ======
-/// 现在 PlusPanel 里的按钮不是 ListTile，只要根据文本找就可以
 Finder plusTile(String text) => find.text(text);
 

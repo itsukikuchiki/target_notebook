@@ -9,137 +9,141 @@ class InsightPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ===== 本周投入（已有） =====
-    final dailyAdapter = context.watch<DailyLogAdapter>();
-    final weekly = dailyAdapter.weeklyStats();
+    final adapter = context.watch<DailyLogAdapter>();
+    final vm = adapter.weeklyStats();
 
-    final totalHours =
-        weekly.hoursByDay.values.fold<double>(0.0, (a, b) => a + b);
+    final totalHours = vm.hoursByDay.values.fold<double>(0.0, (a, b) => a + b);
+    final desc = vm.message.isNotEmpty
+        ? vm.message
+        : '本周累计 ${totalHours.toStringAsFixed(1)} 小时，完成率 ${(vm.completionRate * 100).toStringAsFixed(0)}%。';
 
-    final desc = weekly.message.isNotEmpty
-        ? weekly.message
-        : '本周累计 ${totalHours.toStringAsFixed(1)} 小时，完成率 ${(weekly.completionRate * 100).toStringAsFixed(0)}%。';
-
-    // ===== 目标推进（新增） =====
     final goalTree = context.watch<GoalTreeAdapter>();
+    final goals = goalTree.goals;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Insight')),
-      body: ListView(
+      body: Padding(
         padding: const EdgeInsets.all(16),
-        children: [
-          // =========================
-          // 本周投入
-          // =========================
-          Text(desc, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: weekly.completionRate.clamp(0.0, 1.0),
-            minHeight: 8,
-          ),
-          const SizedBox(height: 16),
-          _WeekBars(hoursByDay: weekly.hoursByDay),
-
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 12),
-
-          // =========================
-          // 目标推进（12/15）
-          // =========================
-          Text(
-            '目标推进',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-
-          if (goalTree.tree.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: Text(
-                  '暂无目标数据',
-                  style: TextStyle(color: Colors.black54),
-                ),
-              ),
-            )
-          else
-            ...goalTree.tree.map(
-              (node) => _GoalProgressCard(node: node),
+        child: ListView(
+          children: [
+            Text(desc, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: vm.completionRate.clamp(0.0, 1.0),
+              minHeight: 8,
             ),
-        ],
+            const SizedBox(height: 16),
+            _WeekBars(hoursByDay: vm.hoursByDay),
+
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                const Text(
+                  'Goals · Burndown / Burnup（MVP）',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                Text(
+                  '快照',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            if (goals.isEmpty)
+              const Text(
+                '还没有目标。去 My Journey 新建一个目标吧。',
+                style: TextStyle(color: Colors.black54),
+              )
+            else
+              ...goals.map((g) => _GoalBurnCard(node: g)),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ==========================
-// Goal Progress Card（占位版）
-// ==========================
-
-class _GoalProgressCard extends StatelessWidget {
+class _GoalBurnCard extends StatelessWidget {
   final GoalNode node;
-
-  const _GoalProgressCard({required this.node});
+  const _GoalBurnCard({required this.node});
 
   @override
   Widget build(BuildContext context) {
+    final total = node.totalTasks;
+    final done = node.doneTasks;
+    final remain = (total - done).clamp(0, 1 << 30);
     final progress = node.progress.clamp(0.0, 1.0);
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.45),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 标题
             Row(
               children: [
                 Container(
                   width: 10,
                   height: 10,
-                  decoration: BoxDecoration(
-                    color: Color(node.color),
-                    shape: BoxShape.circle,
-                  ),
+                  decoration: BoxDecoration(color: node.color, shape: BoxShape.circle),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     node.goal.title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Text(
-                  '${(progress * 100).round()}%',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black54,
+                  'P${node.goal.priority}',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            LinearProgressIndicator(value: progress, minHeight: 8),
+            const SizedBox(height: 8),
+            Text(
+              'Done $done / $total · Remaining $remain',
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _MiniBar(
+                    label: 'Burnup（完成）',
+                    value: done,
+                    total: total == 0 ? 1 : total,
+                    color: node.color,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _MiniBar(
+                    label: 'Burndown（剩余）',
+                    value: remain,
+                    total: total == 0 ? 1 : total,
+                    color: Colors.black45,
                   ),
                 ),
               ],
             ),
 
-            const SizedBox(height: 10),
-
-            // 进度条（后面换 BurnupChart）
-            LinearProgressIndicator(
-              value: progress,
-              minHeight: 6,
-              color: Color(node.color),
-              backgroundColor:
-                  Theme.of(context).dividerColor.withOpacity(0.3),
-            ),
-
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
-              '${node.doneTasks}/${node.totalTasks} 已完成',
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
+              '注：当前为“快照版”（未记录完成时间，无法画历史曲线）。',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
@@ -148,9 +152,44 @@ class _GoalProgressCard extends StatelessWidget {
   }
 }
 
-// ==========================
-// 周柱状图（原封不动）
-// ==========================
+class _MiniBar extends StatelessWidget {
+  final String label;
+  final int value;
+  final int total;
+  final Color color;
+
+  const _MiniBar({
+    required this.label,
+    required this.value,
+    required this.total,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ratio = total == 0 ? 0.0 : (value / total).clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            height: 10,
+            child: LinearProgressIndicator(
+              value: ratio,
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              color: color,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text('$value', style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+}
 
 class _WeekBars extends StatelessWidget {
   final Map<DateTime, double> hoursByDay;
@@ -189,14 +228,9 @@ class _WeekBars extends StatelessWidget {
                   const SizedBox(height: 4),
                   Container(
                     height: 8 +
-                        72 *
-                            ((hoursByDay[_dateOnly(d)] ?? 0.0) /
-                                (maxVal == 0 ? 1 : maxVal)),
+                        72 * ((hoursByDay[_dateOnly(d)] ?? 0.0) / (maxVal == 0 ? 1 : maxVal)),
                     decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withOpacity(0.85),
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.85),
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),

@@ -11,6 +11,7 @@ import 'package:target_notebook/providers/goal_provider.dart';
 import 'package:target_notebook/providers/daily_log_provider.dart';
 
 import 'hive_test_util.dart';
+import 'helpers/hive_test_env.dart';
 
 void main() {
   late Directory dir;

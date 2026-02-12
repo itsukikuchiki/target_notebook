@@ -25,6 +25,8 @@ class TaskProvider extends ChangeNotifier {
   // =========================
   // Query
   // =========================
+  /// 通过 Hive key 获取 Task
+  Task? getByKey(int key) => _taskBox.get(key);
 
   /// 某目标下任务
   List<Task> tasksByGoal(int goalId) =>

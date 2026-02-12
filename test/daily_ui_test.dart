@@ -1,4 +1,3 @@
-// test/w4_daily_ui_test.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -74,6 +73,8 @@ class FakeTaskAdapter extends TaskAdapter {
     required String title,
     DateTime? date,
     int? goalId,
+    int? subGoalId,
+    int priority = 3,
   }) async {
     newTaskCallCount++;
     lastNewTitle = title;
@@ -83,7 +84,19 @@ class FakeTaskAdapter extends TaskAdapter {
         : (_tasks.map((e) => e.id).reduce((a, b) => a > b ? a : b) + 1);
 
     final d = date ?? DateTime.now();
-    final vm = TaskVM(newId, title, d, false, goalId: goalId);
+
+    final vm = TaskVM(
+      newId,
+      title,
+      d,
+      false,
+      goalId: goalId,
+      subGoalId: subGoalId,
+      priority: priority,
+      startAt: d,
+      endAt: d,
+    );
+
     _tasks.add(vm);
     notifyListeners();
     return newId;
@@ -110,14 +123,12 @@ void main() {
     setUp(() {
       daily = FakeDailyLogAdapter();
       task = FakeTaskAdapter();
-      // 默认给一个任务，id=10，用于计时器测试
       task.seedTasks([
         TaskVM(10, '写作', DateTime(2025, 1, 1), false),
       ]);
     });
 
-    testWidgets('周/月切换：点击两种视图按钮（week/month toggle）',
-        (tester) async {
+    testWidgets('周/月切换：点击两种视图按钮（week/month toggle）', (tester) async {
       await tester.pumpWidget(buildApp());
       await tester.pumpAndSettle();
 
@@ -141,11 +152,15 @@ void main() {
       final timer = find.byKey(const Key('daily.task.timer.10'));
       expect(timer, findsOneWidget);
 
+      // ✅ 关键：先滚动到可点击区域（否则 offset 超出 800x600 hitTest 会失败）
+      await tester.ensureVisible(timer);
+
       // 开始
       await tester.tap(timer);
       await tester.pump();
 
       // 停止 → 弹出对话框
+      await tester.ensureVisible(timer);
       await tester.tap(timer);
       await tester.pumpAndSettle();
 
@@ -160,6 +175,7 @@ void main() {
       expect(daily.lastMinutes, isNonZero);
     });
 
+
     testWidgets('快速日志：输入内容并保存，触发 addQuickLog', (tester) async {
       await tester.pumpWidget(buildApp());
       await tester.pumpAndSettle();
@@ -173,8 +189,6 @@ void main() {
       expect(saveBtn, findsOneWidget);
 
       await tester.enterText(textField, '今天写了测试代码');
-
-      // ⭐ 关键修复：先滚动到按钮所在位置，再点
       await tester.ensureVisible(saveBtn);
 
       await tester.tap(saveBtn);
@@ -201,7 +215,6 @@ void main() {
     });
 
     testWidgets('今日三件事卡片显示 top3 任务', (tester) async {
-      // 重置 top3 数据为 3 条
       task.seedTasks([
         TaskVM(1, '任务A', DateTime(2025, 1, 1), false),
         TaskVM(2, '任务B', DateTime(2025, 1, 1), false),
@@ -219,8 +232,7 @@ void main() {
       expect(find.byKey(const Key('daily.top3.item.3')), findsOneWidget);
     });
 
-    testWidgets('新增任务入口：FAB → Dialog → 保存 → 调用 newTask',
-        (tester) async {
+    testWidgets('新增任务入口：FAB → Dialog → 保存 → 调用 newTask', (tester) async {
       await tester.pumpWidget(buildApp());
       await tester.pumpAndSettle();
 
