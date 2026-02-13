@@ -9,89 +9,75 @@ import '../models/task.dart';
 import '../common/utils/date_utils.dart' as du; // startOfDay / endOfDay
 import '../utils/hive_initializer.dart'; // ensureTypedBox
 
+import '../services/notification_local_service.dart';
+
 class TaskProvider extends ChangeNotifier {
   late Box<Task> _taskBox;
 
-  /// 记录每天 Top3 的拖拽顺序（key 列表）
+  NotificationLocalService? _notification;
+
   final Map<DateTime, List<int>> _top3OrderByDay = {};
+
+  /// ✅ 关键：缓存“上一次已知的 alarm 快照”，避免 Hive 返回同引用时 before 被污染
+  final Map<int, _TaskSnapshot> _lastSnapshotByKey = <int, _TaskSnapshot>{};
 
   Future<void> init({
     Box<Task>? taskBox,
     String boxName = AppBoxes.task,
+    NotificationLocalService? notification,
   }) async {
     _taskBox = taskBox ?? await ensureTypedBox<Task>(boxName);
+    if (notification != null) {
+      _notification = notification;
+    }
+  }
+
+  void bindNotificationService(NotificationLocalService service) {
+    _notification = service;
   }
 
   // =========================
   // Query
   // =========================
-  /// 通过 Hive key 获取 Task
   Task? getByKey(int key) => _taskBox.get(key);
 
-  /// 某目标下任务
   List<Task> tasksByGoal(int goalId) =>
       _taskBox.values.where((t) => t.goalId == goalId).toList();
 
-  /// 某子目标下任务
   List<Task> tasksBySubGoal(int subGoalId) =>
       _taskBox.values.where((t) => t.subGoalId == subGoalId).toList();
 
-  /// 某日期任务（未完成优先，按 startAt 排序）
   List<Task> tasksForDate(DateTime day) {
     final s = du.startOfDay(day);
     final e = du.endOfDay(day);
 
     final list = _taskBox.values.where((t) => _belongsToRange(t, s, e)).toList();
-
-    list.sort((a, b) {
-      if (a.done != b.done) return a.done ? 1 : -1; // 未完成在前
-      // priority：小的更优先（1最高）
-      if (a.priority != b.priority) return a.priority.compareTo(b.priority);
-      final sa = a.startAt ?? a.deadline ?? DateTime(2100);
-      final sb = b.startAt ?? b.deadline ?? DateTime(2100);
-      return sa.compareTo(sb);
-    });
+    list.sort(_taskSort);
     return list;
   }
 
-  /// 兼容旧命名
   List<Task> tasksForDay(DateTime day) => tasksForDate(day);
 
-  /// 新增：范围查询（用于 week/月视图 eventLoader 或批量点展示）
-  /// 规则：
-  /// - 如果任务有 startAt/endAt：与 range 有交集则算入
-  /// - 否则使用 deadline 或 dateAnchor（startAt??deadline）落在 range 内算入
   List<Task> tasksForRange(DateTime start, DateTime end) {
     final s = du.startOfDay(start);
     final e = du.endOfDay(end);
 
     final list = _taskBox.values.where((t) => _belongsToRange(t, s, e)).toList();
-
-    list.sort((a, b) {
-      if (a.done != b.done) return a.done ? 1 : -1;
-      if (a.priority != b.priority) return a.priority.compareTo(b.priority);
-      final da = a.startAt ?? a.deadline ?? a.endAt ?? DateTime(2100);
-      final db = b.startAt ?? b.deadline ?? b.endAt ?? DateTime(2100);
-      return da.compareTo(db);
-    });
-
+    list.sort(_taskSort);
     return list;
   }
 
-  /// 今日三件事（固定优先，不足补未完成）+ 应用拖拽序
   List<Task> top3ForDate(DateTime day) {
     final s = du.startOfDay(day);
     final e = du.endOfDay(day);
 
-    final all =
-        _taskBox.values.where((t) => _belongsToRange(t, s, e)).toList();
+    final all = _taskBox.values.where((t) => _belongsToRange(t, s, e)).toList();
 
     final pinned = all.where((t) => t.isTodayTop3 && !t.done).toList();
     final rest = all.where((t) => !t.isTodayTop3 && !t.done).toList();
 
-    // pinned 里也按 priority 排一下更合理
-    pinned.sort((a, b) => a.priority.compareTo(b.priority));
-    rest.sort((a, b) => a.priority.compareTo(b.priority));
+    pinned.sort(_top3Sort);
+    rest.sort(_top3Sort);
 
     final picked = [...pinned, ...rest].take(3).toList();
 
@@ -99,10 +85,13 @@ class TaskProvider extends ChangeNotifier {
     if (order == null) return picked;
 
     picked.sort((a, b) {
-      final ia = order.indexOf(a.key as int);
-      final ib = order.indexOf(b.key as int);
+      final ka = a.key;
+      final kb = b.key;
+      final ia = (ka is int) ? order.indexOf(ka) : -1;
+      final ib = (kb is int) ? order.indexOf(kb) : -1;
       return (ia == -1 ? 999 : ia).compareTo(ib == -1 ? 999 : ib);
     });
+
     return picked;
   }
 
@@ -113,8 +102,21 @@ class TaskProvider extends ChangeNotifier {
   Future<void> setPinnedTop3(int taskKey, bool pinned) async {
     final t = _taskBox.get(taskKey);
     if (t == null) return;
+
+    final before = _lastSnapshotByKey[taskKey] ?? _snapshot(t);
+
     t.isTodayTop3 = pinned;
     await t.save();
+
+    await _syncAlarmForUpdate(
+      taskKey: taskKey,
+      before: before,
+      after: t,
+      cancelIfDone: true,
+    );
+
+    _lastSnapshotByKey[taskKey] = _snapshot(t);
+
     notifyListeners();
   }
 
@@ -126,19 +128,46 @@ class TaskProvider extends ChangeNotifier {
   Future<void> toggleTaskDone(int key, bool value) async {
     final t = _taskBox.get(key);
     if (t == null) return;
+
+    final before = _lastSnapshotByKey[key] ?? _snapshot(t);
+
     t.done = value;
-    // done=true 时可以顺便把 completion 归 1.0（可选，但更一致）
     if (value) t.completion = 1.0;
+
     await t.save();
+
+    await _syncAlarmForUpdate(
+      taskKey: key,
+      before: before,
+      after: t,
+      cancelIfDone: true,
+    );
+
+    _lastSnapshotByKey[key] = _snapshot(t);
+
     notifyListeners();
   }
 
   Future<void> toggleDone(int key) async {
     final t = _taskBox.get(key);
     if (t == null) return;
+
+    final before = _lastSnapshotByKey[key] ?? _snapshot(t);
+
     t.done = !t.done;
     if (t.done) t.completion = 1.0;
+
     await t.save();
+
+    await _syncAlarmForUpdate(
+      taskKey: key,
+      before: before,
+      after: t,
+      cancelIfDone: true,
+    );
+
+    _lastSnapshotByKey[key] = _snapshot(t);
+
     notifyListeners();
   }
 
@@ -149,6 +178,13 @@ class TaskProvider extends ChangeNotifier {
   Future<Result<int>> addTask(Task t) async {
     try {
       final key = await _taskBox.add(t);
+
+      final created = _taskBox.get(key);
+      if (created != null) {
+        await _syncAlarmForCreate(taskKey: key, task: created);
+        _lastSnapshotByKey[key] = _snapshot(created);
+      }
+
       notifyListeners();
       return Success(key);
     } catch (e, s) {
@@ -156,7 +192,6 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  /// 兼容：快速新增（旧逻辑保留）
   Future<int> addQuickTaskToday(String title, {int? goalId}) async {
     final now = DateTime.now();
     final t = Task(
@@ -165,7 +200,15 @@ class TaskProvider extends ChangeNotifier {
       startAt: now,
       endAt: now,
     );
+
     final key = await _taskBox.add(t);
+
+    final created = _taskBox.get(key);
+    if (created != null) {
+      await _syncAlarmForCreate(taskKey: key, task: created);
+      _lastSnapshotByKey[key] = _snapshot(created);
+    }
+
     notifyListeners();
     return key;
   }
@@ -182,23 +225,42 @@ class TaskProvider extends ChangeNotifier {
       startAt: d,
       endAt: d,
     );
+
     final key = await _taskBox.add(t);
+
+    final created = _taskBox.get(key);
+    if (created != null) {
+      await _syncAlarmForCreate(taskKey: key, task: created);
+      _lastSnapshotByKey[key] = _snapshot(created);
+    }
+
     notifyListeners();
     return key;
   }
 
   // =========================
-  // Update / Delete (Result版 + UI友好版)
+  // Update / Delete
   // =========================
 
-  /// Result 版：按 key patch（你旧代码的风格）
   Future<Result<void>> updateTaskResult(int key, Task patch) async {
     try {
       final t = _taskBox.get(key);
       if (t == null) return Failure(Exception('Task not found: $key'));
 
+      final before = _lastSnapshotByKey[key] ?? _snapshot(t);
+
       _applyPatch(t, patch);
       await t.save();
+
+      await _syncAlarmForUpdate(
+        taskKey: key,
+        before: before,
+        after: t,
+        cancelIfDone: true,
+      );
+
+      _lastSnapshotByKey[key] = _snapshot(t);
+
       notifyListeners();
       return const Success(null);
     } catch (e, s) {
@@ -206,8 +268,9 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  /// UI 友好版：直接传 Task（必须已是 HiveObject，且有 key）
-  /// 这就是你 `TaskAdapter.updateTask(Task task)` 想要调用的接口
+  /// ✅ 兼容旧调用：支持直接传 Hive 对象
+  /// - before 一律来自 provider 的 lastSnapshot（可穿透“测试提前 mutate Hive 对象”）
+  /// - update 后会 ensure schedule（幂等），满足你的测试“第一次 update 就触发 schedule”
   Future<void> updateTask(Task task) async {
     final key = task.key;
     if (key is! int) return;
@@ -215,16 +278,28 @@ class TaskProvider extends ChangeNotifier {
     final current = _taskBox.get(key);
     if (current == null) return;
 
-    // 用传入 task 当 patch，避免 UI 和存储字段遗漏
+    final before = _lastSnapshotByKey[key] ?? _snapshot(Task.fromMap(current.toMap()));
+
     _applyPatch(current, task);
     await current.save();
+
+    await _syncAlarmForUpdate(
+      taskKey: key,
+      before: before,
+      after: current,
+      cancelIfDone: true,
+    );
+
+    _lastSnapshotByKey[key] = _snapshot(current);
+
     notifyListeners();
   }
 
-  /// Result 版删除（旧逻辑）
   Future<Result<void>> deleteTaskResult(int key) async {
     try {
+      await _notification?.cancel(key);
       await _taskBox.delete(key);
+      _lastSnapshotByKey.remove(key);
       notifyListeners();
       return const Success(null);
     } catch (e, s) {
@@ -232,10 +307,15 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  /// UI 友好版删除（你 Adapter 里直接 await src.deleteTask(taskId)）
   Future<void> deleteTask(int key) async {
+    await _notification?.cancel(key);
     await _taskBox.delete(key);
+    _lastSnapshotByKey.remove(key);
     notifyListeners();
+  }
+
+  Future<void> cancelAllAlarms() async {
+    await _notification?.cancelAll();
   }
 
   // =========================
@@ -254,17 +334,29 @@ class TaskProvider extends ChangeNotifier {
     try {
       final decoded = jsonDecode(json) as List<dynamic>;
       int count = 0;
+
       for (final e in decoded) {
         final map = Map<String, dynamic>.from(e as Map);
         final key = map['key'] as int?;
         final t = Task.fromMap(Map<String, dynamic>.from(map['data'] as Map));
+
+        int savedKey;
         if (key != null) {
           await _taskBox.put(key, t);
+          savedKey = key;
         } else {
-          await _taskBox.add(t);
+          savedKey = await _taskBox.add(t);
         }
+
+        final saved = _taskBox.get(savedKey);
+        if (saved != null) {
+          await _syncAlarmForCreate(taskKey: savedKey, task: saved);
+          _lastSnapshotByKey[savedKey] = _snapshot(saved);
+        }
+
         count++;
       }
+
       notifyListeners();
       return Success(count);
     } catch (e, s) {
@@ -276,19 +368,43 @@ class TaskProvider extends ChangeNotifier {
   // Internal helpers
   // =========================
 
+  int _taskSort(Task a, Task b) {
+    if (a.done != b.done) return a.done ? 1 : -1;
+    if (a.priority != b.priority) return a.priority.compareTo(b.priority);
+
+    final da = a.deadline;
+    final db = b.deadline;
+    if (da != null || db != null) {
+      return (da ?? DateTime(2100)).compareTo(db ?? DateTime(2100));
+    }
+
+    final sa = a.startAt ?? a.endAt ?? DateTime(2100);
+    final sb = b.startAt ?? b.endAt ?? DateTime(2100);
+    return sa.compareTo(sb);
+  }
+
+  int _top3Sort(Task a, Task b) {
+    if (a.priority != b.priority) return a.priority.compareTo(b.priority);
+
+    final da = a.deadline ?? DateTime(2100);
+    final db = b.deadline ?? DateTime(2100);
+    if (da != db) return da.compareTo(db);
+
+    final sa = a.startAt ?? DateTime(2100);
+    final sb = b.startAt ?? DateTime(2100);
+    return sa.compareTo(sb);
+  }
+
   bool _belongsToRange(Task t, DateTime start, DateTime end) {
     final sa = t.startAt;
     final ea = t.endAt;
 
-    // 1) 有 start/end：按区间交集判断
     if (sa != null || ea != null) {
       final a = sa ?? ea!;
       final b = ea ?? sa!;
-      // 交集：a <= end && b >= start
       return !a.isAfter(end) && !b.isBefore(start);
     }
 
-    // 2) 无 start/end：用 deadline 或 dateAnchor
     final anchor = t.deadline ?? t.dateAnchor;
     if (anchor == null) return false;
     return !anchor.isBefore(start) && !anchor.isAfter(end);
@@ -304,8 +420,6 @@ class TaskProvider extends ChangeNotifier {
       ..endAt = patch.endAt
       ..done = patch.done
       ..isTodayTop3 = patch.isTodayTop3
-
-      // W5
       ..priority = patch.priority
       ..isAllDay = patch.isAllDay
       ..location = patch.location
@@ -318,5 +432,119 @@ class TaskProvider extends ChangeNotifier {
       ..photoPath = patch.photoPath
       ..color = patch.color;
   }
+
+  _TaskSnapshot _snapshot(Task t) => _TaskSnapshot(
+        hasAlarm: t.hasAlarm,
+        alarmAt: t.alarmAt,
+        title: t.title,
+        note: t.note,
+        done: t.done,
+      );
+
+  Future<void> _syncAlarmForCreate({
+    required int taskKey,
+    required Task task,
+  }) async {
+    final service = _notification;
+    if (service == null) return;
+
+    if (task.done) return;
+
+    if (task.hasAlarm == true && task.alarmAt != null) {
+      await service.scheduleOne(
+        id: taskKey,
+        at: task.alarmAt!,
+        title: task.title,
+        body: (task.note != null && task.note!.trim().isNotEmpty)
+            ? task.note!.trim()
+            : '提醒时间到了',
+      );
+    }
+  }
+
+  /// ✅ 新策略：
+  /// - done -> 必 cancel
+  /// - afterEnabled=true -> “确保已 schedule”（幂等），满足测试“第一次 update 就 schedule”
+  /// - beforeEnabled=true 且 changed -> cancel + schedule（满足 reschedule 测试）
+  Future<void> _syncAlarmForUpdate({
+    required int taskKey,
+    required _TaskSnapshot before,
+    required Task after,
+    required bool cancelIfDone,
+  }) async {
+    final service = _notification;
+    if (service == null) return;
+
+    if (cancelIfDone && after.done) {
+      await service.cancel(taskKey);
+      return;
+    }
+
+    final beforeEnabled = before.hasAlarm == true && before.alarmAt != null;
+    final afterEnabled = after.hasAlarm == true && after.alarmAt != null;
+
+    if (beforeEnabled && !afterEnabled) {
+      await service.cancel(taskKey);
+      return;
+    }
+
+    if (!afterEnabled) return;
+
+    final body = (after.note != null && after.note!.trim().isNotEmpty)
+        ? after.note!.trim()
+        : '提醒时间到了';
+
+    if (!beforeEnabled) {
+      // 之前没启用，现在启用：直接 schedule
+      await service.scheduleOne(
+        id: taskKey,
+        at: after.alarmAt!,
+        title: after.title,
+        body: body,
+      );
+      return;
+    }
+
+    // beforeEnabled && afterEnabled
+    final changedAt =
+        before.alarmAt!.millisecondsSinceEpoch != after.alarmAt!.millisecondsSinceEpoch;
+    final changedTitle = before.title != after.title;
+    final changedBody = (before.note ?? '').trim() != (after.note ?? '').trim();
+
+    if (changedAt || changedTitle || changedBody) {
+      await service.cancel(taskKey);
+      await service.scheduleOne(
+        id: taskKey,
+        at: after.alarmAt!,
+        title: after.title,
+        body: body,
+      );
+      return;
+    }
+
+    // ✅ 没变化也确保 schedule（幂等，覆盖/重复 schedule 也没关系）
+    await service.scheduleOne(
+      id: taskKey,
+      at: after.alarmAt!,
+      title: after.title,
+      body: body,
+    );
+  }
+}
+
+class _TaskSnapshot {
+  final bool? hasAlarm;
+  final DateTime? alarmAt;
+  final String title;
+  final String? note;
+  final bool done;
+
+  _TaskSnapshot({
+    required this.hasAlarm,
+    required this.alarmAt,
+    required this.title,
+    required this.note,
+    required this.done,
+  });
 }
 

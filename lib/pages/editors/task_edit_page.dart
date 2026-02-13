@@ -1,8 +1,10 @@
+// lib/pages/editors/task_edit_page.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/task.dart';
 import '../../providers/task_provider.dart';
+import '../../core/result.dart'; // ✅ 用于判断 addTask 返回 Success/Failure
 import '../../widgets/color_picker.dart';
 
 /// 编辑模式参数（旧逻辑兼容）
@@ -41,6 +43,10 @@ class _TaskEditPageState extends State<TaskEditPage> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _noteCtrl;
 
+  // 🆕 W6
+  late final TextEditingController _locationCtrl;
+  late final TextEditingController _participantsCtrl;
+
   int _priority = 3;
   bool _isAllDay = false;
 
@@ -53,17 +59,25 @@ class _TaskEditPageState extends State<TaskEditPage> {
 
   int? _color; // null = 继承/默认
 
+  // 🆕 W6 alarm
+  bool _hasAlarm = false;
+  DateTime? _alarmAt;
+
   @override
   void initState() {
     super.initState();
     _titleCtrl = TextEditingController();
     _noteCtrl = TextEditingController();
+    _locationCtrl = TextEditingController();
+    _participantsCtrl = TextEditingController();
   }
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _noteCtrl.dispose();
+    _locationCtrl.dispose();
+    _participantsCtrl.dispose();
     super.dispose();
   }
 
@@ -99,6 +113,12 @@ class _TaskEditPageState extends State<TaskEditPage> {
 
       _color = t.color;
 
+      // 🆕 W6
+      _locationCtrl.text = t.location ?? '';
+      _participantsCtrl.text = (t.participantEmailsRaw ?? '').trim();
+      _hasAlarm = t.hasAlarm;
+      _alarmAt = t.alarmAt;
+
       return;
     }
 
@@ -124,6 +144,12 @@ class _TaskEditPageState extends State<TaskEditPage> {
       _done = false;
       _color = null;
 
+      // 🆕 W6 默认值
+      _locationCtrl.text = '';
+      _participantsCtrl.text = '';
+      _hasAlarm = false;
+      _alarmAt = null;
+
       return;
     }
 
@@ -133,6 +159,12 @@ class _TaskEditPageState extends State<TaskEditPage> {
     _startAt = DateTime(base.year, base.month, base.day, 9, 0);
     _deadline = DateTime(base.year, base.month, base.day);
     _titleCtrl.text = '新任务';
+
+    // 🆕 W6 默认值
+    _locationCtrl.text = '';
+    _participantsCtrl.text = '';
+    _hasAlarm = false;
+    _alarmAt = null;
   }
 
   Future<DateTime?> _pickDateTime({
@@ -167,6 +199,31 @@ class _TaskEditPageState extends State<TaskEditPage> {
     return '$y-$m-$day $hh:$mm';
   }
 
+  /// 规范化参与者邮箱输入（MVP）：
+  /// - 支持逗号、顿号、分号、空格、换行分隔
+  /// - 去重、去空
+  String _normalizeParticipantsRaw(String raw) {
+    final s = raw
+        .replaceAll('，', ',')
+        .replaceAll(';', ',')
+        .replaceAll('；', ',')
+        .replaceAll('\n', ',')
+        .replaceAll('\t', ',');
+    final parts = s
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    final seen = <String>{};
+    final out = <String>[];
+    for (final p in parts) {
+      final lower = p.toLowerCase();
+      if (seen.add(lower)) out.add(p);
+    }
+    return out.join(', ');
+  }
+
   Future<void> _save() async {
     if (_saving) return;
 
@@ -178,9 +235,31 @@ class _TaskEditPageState extends State<TaskEditPage> {
     try {
       final provider = context.read<TaskProvider>();
 
+      final participantsRaw = _normalizeParticipantsRaw(_participantsCtrl.text);
+      final location = _locationCtrl.text.trim().isEmpty
+          ? null
+          : _locationCtrl.text.trim();
+
+      // ✅ alarm 逻辑（修复：默认值落在过去导致不调度）
+      DateTime? alarmAt = _alarmAt;
+      final now = DateTime.now();
+      if (!_hasAlarm) {
+        alarmAt = null;
+      } else {
+        alarmAt ??= (_startAt != null
+            ? _startAt!.subtract(const Duration(minutes: 10))
+            : now.add(const Duration(hours: 1)));
+
+        // 过去时间不合法：兜底为 1 小时后
+        if (alarmAt.isBefore(now)) {
+          alarmAt = now.add(const Duration(hours: 1));
+        }
+      }
+
       // ====== 新增模式 ======
       if (_isCreate) {
-        final title = _titleCtrl.text.trim().isEmpty ? '新任务' : _titleCtrl.text.trim();
+        final title =
+            _titleCtrl.text.trim().isEmpty ? '新任务' : _titleCtrl.text.trim();
 
         final newTask = Task(
           title: title,
@@ -195,13 +274,21 @@ class _TaskEditPageState extends State<TaskEditPage> {
           completion: _done ? 1.0 : _completion.clamp(0.0, 1.0),
           done: _done,
           color: _color,
+
+          // 🆕 W6
+          location: location,
+          participantEmailsRaw: participantsRaw.isEmpty ? null : participantsRaw,
+          hasAlarm: _hasAlarm,
+          alarmAt: alarmAt,
         );
 
-        // done=true 时保持一致性
         if (newTask.done) newTask.completion = 1.0;
 
-        // ✅ addTask 返回 Result<int>（或类似），这里不做错误类型猜测，交给 provider/异常机制
-        await provider.addTask(newTask);
+        // ✅ addTask 返回 Result：失败不会 throw，所以这里要处理
+        final result = await provider.addTask(newTask);
+        if (result is Failure) {
+          throw result.error;
+        }
 
         if (!mounted) return;
         Navigator.of(context).pop(true);
@@ -214,8 +301,15 @@ class _TaskEditPageState extends State<TaskEditPage> {
         throw Exception('Task not found');
       }
 
+      // key 兜底：防止 updateTask 静默失败
+      final key = t.key;
+      if (key is! int) {
+        throw Exception('Invalid task key');
+      }
+
       t
-        ..title = _titleCtrl.text.trim().isEmpty ? t.title : _titleCtrl.text.trim()
+        ..title =
+            _titleCtrl.text.trim().isEmpty ? t.title : _titleCtrl.text.trim()
         ..note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim()
         ..priority = _priority
         ..isAllDay = _isAllDay
@@ -224,7 +318,14 @@ class _TaskEditPageState extends State<TaskEditPage> {
         ..deadline = _deadline
         ..completion = _done ? 1.0 : _completion.clamp(0.0, 1.0)
         ..done = _done
-        ..color = _color;
+        ..color = _color
+
+        // 🆕 W6
+        ..location = location
+        ..participantEmailsRaw =
+            participantsRaw.isEmpty ? null : participantsRaw
+        ..hasAlarm = _hasAlarm
+        ..alarmAt = alarmAt;
 
       if (t.done) t.completion = 1.0;
 
@@ -243,7 +344,6 @@ class _TaskEditPageState extends State<TaskEditPage> {
   }
 
   Future<void> _delete() async {
-    // 新增模式没有可删对象
     if (_isCreate) return;
 
     final key = _taskKey;
@@ -280,14 +380,14 @@ class _TaskEditPageState extends State<TaskEditPage> {
   Widget build(BuildContext context) {
     _initIfNeeded(context);
 
-    // 旧逻辑：如果是编辑模式但取不到 task，就显示错误
     if (!_isCreate && _task == null) {
       return const Scaffold(
         body: Center(child: Text('任务不存在或参数错误')),
       );
     }
 
-    final isGoalTask = _isCreate ? (_createGoalId != null) : (_task?.goalId != null);
+    final isGoalTask =
+        _isCreate ? (_createGoalId != null) : (_task?.goalId != null);
 
     return Scaffold(
       appBar: AppBar(
@@ -312,7 +412,8 @@ class _TaskEditPageState extends State<TaskEditPage> {
                   labelText: '标题',
                   hintText: '例如：复习 FP2 / 和客户开会',
                 ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? '请输入标题' : null,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? '请输入标题' : null,
               ),
               const SizedBox(height: 12),
 
@@ -324,6 +425,70 @@ class _TaskEditPageState extends State<TaskEditPage> {
                 ),
                 maxLines: 3,
               ),
+              const SizedBox(height: 12),
+
+              // 地点
+              TextFormField(
+                controller: _locationCtrl,
+                decoration: const InputDecoration(
+                  labelText: '地点（可选）',
+                  hintText: '例如：Ginza / Zoom / Office',
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // 参与者
+              TextFormField(
+                controller: _participantsCtrl,
+                decoration: const InputDecoration(
+                  labelText: '参与者邮箱（可选）',
+                  hintText: '多个邮箱用逗号或换行分隔',
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'MVP：这里只做“已邀请”本地记录（不发送邮件）。后续可接真实邀请与状态同步。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+
+              // Alarm
+              Row(
+                children: [
+                  Switch(
+                    value: _hasAlarm,
+                    onChanged: (v) => setState(() {
+                      _hasAlarm = v;
+                      if (!v) _alarmAt = null;
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('提醒（alarm）'),
+                  const Spacer(),
+                  Text(
+                    _hasAlarm ? _fmtDT(_alarmAt) : '未开启',
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+              if (_hasAlarm) ...[
+                const SizedBox(height: 8),
+                _TimeRow(
+                  label: '提醒时间',
+                  value: _fmtDT(_alarmAt),
+                  onTap: () async {
+                    final init = _alarmAt ?? _startAt ?? DateTime.now();
+                    final dt = await _pickDateTime(
+                      initial: init,
+                      pickTime: true,
+                    );
+                    if (dt == null) return;
+                    setState(() => _alarmAt = dt);
+                  },
+                  onClear: () => setState(() => _alarmAt = null),
+                ),
+              ],
               const SizedBox(height: 12),
 
               // 完成 / 完成度
@@ -339,7 +504,10 @@ class _TaskEditPageState extends State<TaskEditPage> {
                   const SizedBox(width: 8),
                   Text(_done ? '已完成' : '未完成'),
                   const Spacer(),
-                  Text('P$_priority', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    'P$_priority',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -348,10 +516,14 @@ class _TaskEditPageState extends State<TaskEditPage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('完成度（0-100%）', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                  const Text(
+                    '完成度（0-100%）',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
                   Slider(
                     value: _done ? 1.0 : _completion,
-                    onChanged: _done ? null : (v) => setState(() => _completion = v),
+                    onChanged:
+                        _done ? null : (v) => setState(() => _completion = v),
                   ),
                   Text(
                     '${((_done ? 1.0 : _completion) * 100).round()}%',
@@ -369,7 +541,8 @@ class _TaskEditPageState extends State<TaskEditPage> {
                   DropdownButton<int>(
                     value: _priority,
                     items: const [1, 2, 3, 4, 5]
-                        .map((v) => DropdownMenuItem(value: v, child: Text('P$v')))
+                        .map((v) =>
+                            DropdownMenuItem(value: v, child: Text('P$v')))
                         .toList(),
                     onChanged: (v) => setState(() => _priority = v ?? 3),
                   ),

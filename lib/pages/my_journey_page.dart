@@ -11,6 +11,12 @@ import 'editors/goal_edit_page.dart';
 import 'editors/subgoal_edit_page.dart';
 import 'editors/task_edit_page.dart';
 
+/// 临时兼容：项目里当前没有暴露/不存在 GoalNodeVM 类型名，
+/// 但本页的 weekly focus 需要一个“目标树节点”的列表类型。
+/// 先用 dynamic 让工程编译通过；后续确认真实节点类型后可改为：
+///   typedef GoalNodeVM = <真实类型>;
+typedef GoalNodeVM = dynamic;
+
 class MyJourneyPage extends StatefulWidget {
   const MyJourneyPage({super.key});
 
@@ -21,6 +27,15 @@ class MyJourneyPage extends StatefulWidget {
 class _MyJourneyPageState extends State<MyJourneyPage> {
   final Set<int> _expandedGoalKeys = <int>{};
   final Set<int> _expandedSubGoalKeys = <int>{};
+
+  DateTime _mondayOfWeek(DateTime d) {
+    final x = DateTime(d.year, d.month, d.day);
+    // DateTime.monday=1 ... sunday=7
+    return x.subtract(Duration(days: x.weekday - DateTime.monday));
+  }
+
+  String _fmtYmd(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -50,12 +65,47 @@ class _MyJourneyPageState extends State<MyJourneyPage> {
       );
     }
 
+    // =========================
+    // W6：本周三目标（按 priority 取前三）
+    // =========================
+    final monday = _mondayOfWeek(DateTime.now());
+    final focus = [...goals]
+      ..sort((a, b) {
+        // priority 越小越优先
+        final pa = a.goal.priority;
+        final pb = b.goal.priority;
+        if (pa != pb) return pa.compareTo(pb);
+        // 同优先度就按 key 稳定
+        return a.goalKey.compareTo(b.goalKey);
+      });
+    final top3Goals = focus.take(3).toList();
+
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: goals.length,
+      itemCount: goals.length + 1, // +1 for weekly focus card
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (ctx, i) {
-        final node = goals[i];
+        // 顶部插入：本周三目标卡片
+        if (i == 0) {
+          return _WeeklyFocusCard(
+            monday: monday,
+            items: top3Goals,
+            onTapGoal: (goalKey) {
+              // 体验：点一下展开该目标
+              setState(() {
+                if (_expandedGoalKeys.contains(goalKey)) {
+                  _expandedGoalKeys.remove(goalKey);
+                } else {
+                  _expandedGoalKeys.add(goalKey);
+                }
+              });
+            },
+            fmtYmd: _fmtYmd,
+          );
+        }
+
+        // 下面才是原 goals 列表
+        final node = goals[i - 1];
         final goalKey = node.goalKey;
         final g = node.goal;
         final goalColor = node.color;
@@ -144,7 +194,9 @@ class _MyJourneyPageState extends State<MyJourneyPage> {
                             ],
                             onSelected: (v) async {
                               if (v == 'ai_breakdown') {
-                                await ctx.read<AiBreakdownProvider>().openForGoalKey(ctx, goalKey);
+                                await ctx
+                                    .read<AiBreakdownProvider>()
+                                    .openForGoalKey(ctx, goalKey);
                                 return;
                               }
                               if (v == 'edit_goal') {
@@ -197,7 +249,8 @@ class _MyJourneyPageState extends State<MyJourneyPage> {
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                     child: Column(
                       children: node.subGoals.map((sg) {
-                        final expanded = _expandedSubGoalKeys.contains(sg.subGoalKey);
+                        final expanded =
+                            _expandedSubGoalKeys.contains(sg.subGoalKey);
 
                         return _SubGoalTile(
                           subGoal: sg.subGoal,
@@ -207,7 +260,9 @@ class _MyJourneyPageState extends State<MyJourneyPage> {
                           tasks: sg.tasks,
                           onToggle: (k, e) {
                             setState(() {
-                              e ? _expandedSubGoalKeys.add(k) : _expandedSubGoalKeys.remove(k);
+                              e
+                                  ? _expandedSubGoalKeys.add(k)
+                                  : _expandedSubGoalKeys.remove(k);
                             });
                           },
                           onEdit: () {
@@ -251,6 +306,98 @@ class _MyJourneyPageState extends State<MyJourneyPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class _WeeklyFocusCard extends StatelessWidget {
+  final DateTime monday;
+  final List<GoalNodeVM> items;
+  final void Function(int goalKey) onTapGoal;
+  final String Function(DateTime d) fmtYmd;
+
+  const _WeeklyFocusCard({
+    required this.monday,
+    required this.items,
+    required this.onTapGoal,
+    required this.fmtYmd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final end = monday.add(const Duration(days: 6));
+
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.55),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.star, size: 18),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    '本周三目标',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Text(
+                  '${fmtYmd(monday)} ~ ${fmtYmd(end)}',
+                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (items.isEmpty)
+              const Text(
+                '还没有目标。先创建一个目标并设置优先度（P1 最高）。',
+                style: TextStyle(color: Colors.black54),
+              )
+            else
+              Column(
+                children: [
+                  for (int i = 0; i < items.length; i++)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        radius: 14,
+                        backgroundColor: items[i].color.withOpacity(0.15),
+                        child: Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: items[i].color,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        items[i].goal.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        'P${items[i].goal.priority} · 进度 ${(items[i].progress * 100).toStringAsFixed(0)}%',
+                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => onTapGoal(items[i].goalKey),
+                    ),
+                ],
+              ),
+            const SizedBox(height: 2),
+            const Text(
+              '规则：周一自动刷新（按目标优先度选前三）。点击可快速展开目标树。',
+              style: TextStyle(fontSize: 11, color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

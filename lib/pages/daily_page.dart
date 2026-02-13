@@ -159,7 +159,10 @@ class _DailyPageState extends State<DailyPage> {
                 const SizedBox(height: 16),
                 _buildKpiCard(daily),
                 const SizedBox(height: 16),
+
+                // ✅ W6：Top3 变成可操作卡片
                 _buildTop3Card(taskAdapter),
+
                 const SizedBox(height: 16),
                 _buildTaskList(taskAdapter, tasks),
                 const SizedBox(height: 16),
@@ -422,10 +425,14 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 
-  // ---------------- 今日三件事 ----------------
+  // ---------------- 今日三件事（W6：可拖拽 + pin） ----------------
 
   Widget _buildTop3Card(TaskAdapter taskAdapter) {
+    // 数据源仍用 Adapter，保证你现有测试/逻辑不受影响
     final top3 = taskAdapter.top3ForDate(_selectedDate);
+
+    // 用 Provider 来写入：pin 与排序
+    final TaskProvider? taskProvider = Provider.of<TaskProvider?>(context);
 
     return Card(
       key: const Key('daily.top3.card'),
@@ -434,13 +441,79 @@ class _DailyPageState extends State<DailyPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('今日三件事'),
+            Row(
+              children: [
+                const Text('今日三件事', style: TextStyle(fontWeight: FontWeight.w700)),
+                const Spacer(),
+                Text(
+                  '${top3.length}/3',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
-            for (var i = 0; i < top3.length; i++)
-              ListTile(
-                key: Key('daily.top3.item.${i + 1}'),
-                title: Text(top3[i].title),
+
+            if (top3.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  '今天还没有任务。点右下角「+」创建一个吧。',
+                  style: TextStyle(color: Colors.black54),
+                ),
+              )
+            else
+              ReorderableListView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                onReorder: (oldIndex, newIndex) {
+                  if (oldIndex < newIndex) newIndex -= 1;
+                  final list = [...top3];
+                  final item = list.removeAt(oldIndex);
+                  list.insert(newIndex, item);
+
+                  // 写回当天顺序（如果缺 provider，就只做 UI 级别，不崩）
+                  final keys = list.map((t) => t.id).toList();
+                  if (taskProvider != null) {
+                    taskProvider.setTop3Order(_selectedDate, keys);
+                  }
+                  setState(() {});
+                },
+                children: [
+                  for (int i = 0; i < top3.length; i++)
+                    _Top3Tile(
+                      key: Key('daily.top3.item.${i + 1}'),
+                      index: i,
+                      task: top3[i],
+                      onTap: () async {
+                        final k = top3[i].id;
+                        await Navigator.of(context).pushNamed(
+                          TaskEditPage.route,
+                          arguments: TaskEditArgs(taskKey: k),
+                        );
+                        setState(() {});
+                      },
+                      onTogglePin: taskProvider == null
+                          ? null
+                          : () async {
+                              final k = top3[i].id;
+                              await taskProvider.setPinnedTop3(k, !top3[i].isTodayTop3);
+                              setState(() {});
+                            },
+                      onToggleDone: () async {
+                        final k = top3[i].id;
+                        await taskAdapter.toggleTaskDone(k, !top3[i].done);
+                        setState(() {});
+                      },
+                    ),
+                ],
               ),
+
+            const SizedBox(height: 6),
+            const Text(
+              '规则：优先展示你手动置顶（pin）的任务，不足再按优先度+deadline 自动补齐；拖拽可调整顺序。',
+              style: TextStyle(fontSize: 11, color: Colors.black54),
+            ),
           ],
         ),
       ),
@@ -664,6 +737,86 @@ class _DailyPageState extends State<DailyPage> {
         );
       },
     );
+  }
+}
+
+class _Top3Tile extends StatelessWidget {
+  final int index;
+  final TaskVM task;
+  final VoidCallback onTap;
+  final VoidCallback? onTogglePin;
+  final VoidCallback onToggleDone;
+
+  const _Top3Tile({
+    super.key,
+    required this.index,
+    required this.task,
+    required this.onTap,
+    required this.onToggleDone,
+    this.onTogglePin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final numLabel = '${index + 1}';
+    final pinned = task.isTodayTop3 == true;
+
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 14,
+        child: Text(numLabel, style: const TextStyle(fontSize: 12)),
+      ),
+      title: Text(
+        task.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: (task.deadline == null && (task as dynamic).startAt == null)
+          ? null
+          : Text(
+              _sub(task),
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+      onTap: onTap,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: task.done ? '标记未完成' : '标记完成',
+            icon: Icon(task.done ? Icons.check_circle : Icons.circle_outlined),
+            onPressed: onToggleDone,
+          ),
+          IconButton(
+            tooltip: pinned ? '取消置顶' : '置顶',
+            icon: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
+            onPressed: onTogglePin,
+          ),
+          ReorderableDragStartListener(
+            index: index,
+            child: const Icon(Icons.drag_handle),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _sub(TaskVM t) {
+    final parts = <String>[];
+    if (t.deadline != null) {
+      parts.add('DL ${t.deadline!.month}/${t.deadline!.day}');
+    }
+    try {
+      final DateTime? startAt = (t as dynamic).startAt as DateTime?;
+      final bool isAllDay = (t as dynamic).isAllDay == true;
+      if (startAt != null && !isAllDay) {
+        parts.add(
+          '${startAt.hour.toString().padLeft(2, '0')}:${startAt.minute.toString().padLeft(2, '0')}',
+        );
+      }
+    } catch (_) {}
+    final pri = (t as dynamic).priority as int?;
+    if (pri != null && pri != 0) parts.add('P$pri');
+    return parts.join(' · ');
   }
 }
 

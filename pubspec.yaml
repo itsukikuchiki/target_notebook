@@ -16,6 +16,8 @@ dependencies:
   shared_preferences: ^2.3.2
   intl: ^0.20.2
   cupertino_icons: ^1.0.8
+  uuid: ^4.4.2                     # 🆕 生成 userId / inviteId
+  crypto: ^3.0.3                   # 🆕 邮箱登录简单 hash（MVP）
 
   # ===== Storage =====
   hive: ^2.2.3
@@ -24,9 +26,18 @@ dependencies:
   # ===== UI =====
   table_calendar: ^3.0.9
 
-  # ===== AI / Network（🆕 W5 必须）=====
+  # ===== Notifications（🆕 W6 必须）=====
+  flutter_local_notifications: ^17.2.3
+  timezone: ^0.9.4
+
+  # ===== Auth（🆕 W6 第三方登录）=====
+  google_sign_in: ^6.2.1
+  sign_in_with_apple: ^6.1.0
+  flutter_line_sdk: ^2.3.3
+
+  # ===== AI / Network =====
   http: ^1.2.2
-  flutter_dotenv: ^5.1.0   # 🔸 Debug / 内测用，正式版可移除
+  flutter_dotenv: ^5.1.0   # Debug / 内测用
 
 dev_dependencies:
   flutter_test:
@@ -35,9 +46,9 @@ dev_dependencies:
   hive_generator: ^2.0.1
   build_runner: ^2.4.13
   test: ^1.25.15
-  flutter_launcher_icons: ^0.13.1   # ✅ 必须有
+  flutter_launcher_icons: ^0.13.1
 
-# ✅ App Icon 生成配置
+# ===== App Icon =====
 flutter_launcher_icons:
   android: true
   ios: true
@@ -49,5 +60,5 @@ flutter:
   assets:
     - assets/holidays/
     - assets/brand/
-    - .env   # 🆕 若使用 flutter_dotenv
+    - .env
 

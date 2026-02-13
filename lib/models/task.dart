@@ -81,8 +81,6 @@ class Task extends HiveObject {
   String? photoPath;
 
   /// 12/15：任务颜色（可选）
-  /// - 若 goalId != null，通常用 Goal.color（本字段可不用/可覆盖）
-  /// - 若普通日程，可用默认色或用户选择色
   @HiveField(18)
   int? color;
 
@@ -124,7 +122,8 @@ class Task extends HiveObject {
   }
 
   set participantEmails(List<String> emails) {
-    participantEmailsRaw = emails.map((e) => e.trim()).where((e) => e.isNotEmpty).join(',');
+    participantEmailsRaw =
+        emails.map((e) => e.trim()).where((e) => e.isNotEmpty).join(',');
   }
 
   /// 用于日历显示的“日期归属”（优先 startAt，其次 deadline）
@@ -144,8 +143,6 @@ class Task extends HiveObject {
         'endAt': endAt?.toIso8601String(),
         'done': done,
         'isTodayTop3': isTodayTop3,
-
-        // new
         'priority': priority,
         'isAllDay': isAllDay,
         'location': location,
@@ -172,8 +169,6 @@ class Task extends HiveObject {
             : null,
         done: (m['done'] as bool?) ?? false,
         isTodayTop3: (m['isTodayTop3'] as bool?) ?? false,
-
-        // new
         priority: (m['priority'] as int?) ?? 3,
         isAllDay: (m['isAllDay'] as bool?) ?? false,
         location: m['location'] as String?,
@@ -191,6 +186,4 @@ class Task extends HiveObject {
         color: m['color'] as int?,
       );
 }
-
-
 

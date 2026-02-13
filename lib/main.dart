@@ -3,83 +3,76 @@ import 'package:provider/provider.dart';
 import 'package:hive/hive.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-// 1) Hive 初始化
 import 'core/hive_init.dart';
 
-// 2) Provider 层
 import 'providers/nav_provider.dart';
 import 'providers/goal_provider.dart';
 import 'providers/sub_goal_provider.dart';
 import 'providers/task_provider.dart';
 import 'providers/daily_log_provider.dart';
-
-// 🆕 AI Provider
+import 'providers/user_provider.dart';
 import 'providers/ai_breakdown_provider.dart';
 
-// 3) UI Adapters
 import 'adapters/goal_adapter.dart' as goal_vm;
 import 'adapters/task_adapter.dart' as task_vm;
 import 'adapters/dailylog_adapter.dart' as log_vm;
 import 'adapters/goal_tree_adapter.dart';
 
-// 🆕 AI Service
 import 'services/ai_service.dart';
+import 'services/notification_local_service.dart';
 
-// 4) 模型（仅为种子数据所需）
 import 'models/goal.dart' as m;
 import 'models/task.dart' as m;
 import 'models/daily_log.dart' as m;
 
-// 5) App & Pages
 import 'app.dart';
 import 'pages/splash_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // =========================
-  // 0) .env（可选，缺失不崩）
-  // =========================
   await _loadDotEnvSafe();
 
-  // =========================
-  // 1) Hive 初始化
-  // =========================
+  // 1) Hive
   await initHive();
 
-  // =========================
-  // 2) Providers
-  // =========================
+  // 2) Providers（先创建实例）
+  final nav = NavProvider();
+  final userP = UserProvider();
+
   final goalP = GoalProvider();
   final subGoalP = SubGoalProvider();
   final taskP = TaskProvider();
   final logP = DailyLogProvider();
 
+  // 2.1) Nav load
+  await nav.load();
+
+  // 2.2) Notification
+  final notification = NotificationLocalService();
+  await notification.init();
+
+  // 2.3) init 顺序：User -> 业务数据
+  await userP.init();
+
   await goalP.init();
   await subGoalP.init();
-  await taskP.init();
+
+  // ✅ 关键：把 notification 传进 init（不要先 bind 再 init）
+  await taskP.init(notification: notification);
+
   await logP.init();
 
-  // =========================
-  // 3) 种子数据（仅首次）
-  // =========================
+  // 3) Seed（仅首次）
   await _seedIfEmpty();
 
-  // =========================
   // 4) UI Adapters
-  // =========================
-  final nav = NavProvider();
   final goalVM = goal_vm.GoalAdapter(goalP, taskP);
   final taskVM = task_vm.TaskAdapter(taskP);
   final logVM = log_vm.DailyLogAdapter(logP);
-
-  // 目标树 Adapter（My Journey / Insight / Calendar 共用）
   final goalTreeVM = GoalTreeAdapter(goalP, subGoalP, taskP);
 
-  // =========================
-  // 5) AI Service & Provider（🆕）
-  // =========================
-  // 没有 key 也不崩：AiService 内部会抛错 → AiBreakdownProvider catch 后走 fallback
+  // 5) AI
   final apiKey = dotenv.maybeGet('OPENAI_API_KEY') ?? '';
   final aiService = AiService(apiKey: apiKey);
 
@@ -90,30 +83,24 @@ Future<void> main() async {
     taskProvider: taskP,
   );
 
-  // =========================
-  // 6) 注入 & 启动
-  // =========================
+  // 6) Run
   runApp(
     MultiProvider(
       providers: [
-        // navigation
+        Provider<NotificationLocalService>.value(value: notification),
         ChangeNotifierProvider.value(value: nav),
+        ChangeNotifierProvider.value(value: userP),
 
-        // core providers
         ChangeNotifierProvider.value(value: goalP),
         ChangeNotifierProvider.value(value: subGoalP),
         ChangeNotifierProvider.value(value: taskP),
         ChangeNotifierProvider.value(value: logP),
 
-        // ui adapters
         ChangeNotifierProvider.value(value: goalVM),
         ChangeNotifierProvider.value(value: taskVM),
         ChangeNotifierProvider.value(value: logVM),
 
-        // goal tree
         ChangeNotifierProvider.value(value: goalTreeVM),
-
-        // 🆕 AI
         ChangeNotifierProvider.value(value: aiBreakdownP),
       ],
       child: MaterialApp(
@@ -130,15 +117,9 @@ Future<void> main() async {
 Future<void> _loadDotEnvSafe() async {
   try {
     await dotenv.load(fileName: '.env');
-  } catch (_) {
-    // .env 不存在/读取失败都不影响启动
-    // 正式版建议改为后端代理，不在客户端存 key
-  }
+  } catch (_) {}
 }
 
-// =======================================================
-// 仅本地演示用的种子数据（首次启动）
-// =======================================================
 Future<void> _seedIfEmpty() async {
   final goalBox = Hive.box<m.Goal>(AppBoxes.goal);
   final taskBox = Hive.box<m.Task>(AppBoxes.task);

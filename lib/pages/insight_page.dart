@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../adapters/dailylog_adapter.dart';
 import '../adapters/goal_tree_adapter.dart';
+import '../providers/nav_provider.dart';
 
 class InsightPage extends StatelessWidget {
   const InsightPage({super.key});
@@ -32,6 +33,15 @@ class InsightPage extends StatelessWidget {
               value: vm.completionRate.clamp(0.0, 1.0),
               minHeight: 8,
             ),
+
+            // ✅ W6：闭环行动栏（切换 BottomNav 的 tab）
+            const SizedBox(height: 12),
+            _LoopActionBar(
+              onGoJourney: () => context.read<NavProvider>().setIndex(0),
+              onGoDaily: () => context.read<NavProvider>().setIndex(1),
+              onGoReflection: () => context.read<NavProvider>().setIndex(3),
+            ),
+
             const SizedBox(height: 16),
             _WeekBars(hoursByDay: vm.hoursByDay),
 
@@ -61,6 +71,71 @@ class InsightPage extends StatelessWidget {
               )
             else
               ...goals.map((g) => _GoalBurnCard(node: g)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LoopActionBar extends StatelessWidget {
+  final VoidCallback onGoJourney;
+  final VoidCallback onGoDaily;
+  final VoidCallback onGoReflection;
+
+  const _LoopActionBar({
+    required this.onGoJourney,
+    required this.onGoDaily,
+    required this.onGoReflection,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.45),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '闭环行动',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onGoJourney,
+                    icon: const Icon(Icons.flag),
+                    label: const Text('看目标'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onGoDaily,
+                    icon: const Icon(Icons.today),
+                    label: const Text('去执行'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onGoReflection,
+                    icon: const Icon(Icons.notes),
+                    label: const Text('去复盘'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '流程：目标（拆解）→ 日程（执行）→ Insight（检查）→ Reflection（复盘）。',
+              style: TextStyle(fontSize: 11, color: Colors.black54),
+            ),
           ],
         ),
       ),
@@ -198,15 +273,18 @@ class _WeekBars extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
+
     DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
     DateTime _weekStart(DateTime d) {
       final date = _dateOnly(d);
-      final delta = (date.weekday + 6) % 7;
+      final delta = (date.weekday + 6) % 7; // Monday start
       return date.subtract(Duration(days: delta));
     }
 
     final start = _weekStart(now);
     final days = List.generate(7, (i) => start.add(Duration(days: i)));
+
     final maxVal = (hoursByDay.values.isEmpty)
         ? 1.0
         : hoursByDay.values.fold<double>(0.0, (a, b) => a > b ? a : b);
@@ -228,7 +306,9 @@ class _WeekBars extends StatelessWidget {
                   const SizedBox(height: 4),
                   Container(
                     height: 8 +
-                        72 * ((hoursByDay[_dateOnly(d)] ?? 0.0) / (maxVal == 0 ? 1 : maxVal)),
+                        72 *
+                            ((hoursByDay[_dateOnly(d)] ?? 0.0) /
+                                (maxVal == 0 ? 1 : maxVal)),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.primary.withOpacity(0.85),
                       borderRadius: BorderRadius.circular(4),

@@ -1,3 +1,4 @@
+// test/helpers/hive_test_env.dart
 import 'dart:io';
 
 import 'package:hive/hive.dart';
@@ -8,6 +9,7 @@ import 'package:target_notebook/models/goal.dart';
 import 'package:target_notebook/models/sub_goal.dart';
 import 'package:target_notebook/models/task.dart';
 import 'package:target_notebook/models/daily_log.dart';
+import 'package:target_notebook/models/app_user.dart';
 
 Directory? _hiveTestDir;
 bool _hiveInited = false;
@@ -16,15 +18,38 @@ bool _hiveInited = false;
 final Set<String> _openedBoxNames = <String>{};
 
 /// ---------------------------------------------------------------------------
+/// ✅ 新增：tests 正在用的 API（HiveTestEnv.setUp/tearDown）
+/// ---------------------------------------------------------------------------
+class HiveTestEnv {
+  static Future<void> setUp() async {
+    await ensureHiveReady();
+
+    // ✅ tests 里会直接 Hive.box(...)，所以必须提前 open 固定 boxes
+    await openTestBox<Goal>(AppBoxes.goal);
+    await openTestBox<SubGoal>(AppBoxes.subGoal);
+    await openTestBox<Task>(AppBoxes.task);
+    await openTestBox<DailyLog>(AppBoxes.dailyLog);
+    await openTestBox<AppUser>(AppBoxes.user);
+  }
+
+  static Future<void> tearDown() async {
+    final dir = _hiveTestDir;
+    if (dir != null) {
+      await disposeHiveTest(dir);
+    }
+  }
+}
+
+/// ---------------------------------------------------------------------------
 /// 公共工具：清空 Hive boxes（flutter_test_config.dart 在用）
 /// ---------------------------------------------------------------------------
 Future<void> clearHiveBoxes() async {
-  // 你项目固定的 box 名（即使不是通过 helper 打开的，也尝试清）
   final fixed = <String>{
     AppBoxes.goal,
     AppBoxes.subGoal,
     AppBoxes.task,
     AppBoxes.dailyLog,
+    AppBoxes.user,
   };
 
   final names = <String>{
@@ -37,7 +62,9 @@ Future<void> clearHiveBoxes() async {
       if (Hive.isBoxOpen(name)) {
         await Hive.box(name).clear();
       }
-    } catch (_) {}
+    } catch (_) {
+      // ignore
+    }
   }
 }
 
@@ -76,12 +103,16 @@ Future<Directory> initHiveTest() async {
 Future<void> disposeHiveTest(Directory dir) async {
   try {
     await Hive.close();
-  } catch (_) {}
+  } catch (_) {
+    // ignore
+  }
 
   if (await dir.exists()) {
     try {
       await dir.delete(recursive: true);
-    } catch (_) {}
+    } catch (_) {
+      // ignore
+    }
   }
 
   if (_hiveTestDir?.path == dir.path) {
@@ -108,5 +139,9 @@ void _registerAdaptersIfNeeded() {
   if (!Hive.isAdapterRegistered(3)) Hive.registerAdapter(SubGoalAdapter());
   if (!Hive.isAdapterRegistered(4)) Hive.registerAdapter(TaskAdapter());
   if (!Hive.isAdapterRegistered(5)) Hive.registerAdapter(DailyLogAdapter());
+
+  // ✅ 必须注册（否则 userBox 写入会崩）
+  if (!Hive.isAdapterRegistered(6)) Hive.registerAdapter(AppUserAdapter());
+  if (!Hive.isAdapterRegistered(7)) Hive.registerAdapter(AuthProviderTypeAdapter());
 }
 
