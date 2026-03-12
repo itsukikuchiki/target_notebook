@@ -1,4 +1,5 @@
 // test/helpers/hive_test_env.dart
+import 'dart:async';
 import 'dart:io';
 
 import 'package:hive/hive.dart';
@@ -14,6 +15,12 @@ import 'package:target_notebook/models/app_user.dart';
 Directory? _hiveTestDir;
 bool _hiveInited = false;
 
+/// ✅ 关键：跨 test 文件引用计数
+/// - 每个文件 setUpAll -> +1
+/// - 每个文件 tearDownAll -> -1
+/// - 仅当 refCount 归零时才真正 Hive.close + 删除目录
+int _envRefCount = 0;
+
 /// Hive 2.2.3 没有 Hive.boxNames，所以我们自己追踪 test 中打开过的 boxes。
 final Set<String> _openedBoxNames = <String>{};
 
@@ -22,6 +29,8 @@ final Set<String> _openedBoxNames = <String>{};
 /// ---------------------------------------------------------------------------
 class HiveTestEnv {
   static Future<void> setUp() async {
+    _envRefCount += 1;
+
     await ensureHiveReady();
 
     // ✅ tests 里会直接 Hive.box(...)，所以必须提前 open 固定 boxes
@@ -33,6 +42,16 @@ class HiveTestEnv {
   }
 
   static Future<void> tearDown() async {
+    // ✅ 幂等：多次 tearDown 不会把 refCount 弄成负数
+    if (_envRefCount > 0) _envRefCount -= 1;
+
+    // ✅ 不是最后一个使用者：只清空，不 close / delete（避免中途把后续测试环境掀掉）
+    if (_envRefCount > 0) {
+      await clearHiveBoxes();
+      return;
+    }
+
+    // ✅ 最后一个：真正释放资源，但必须“永不阻塞”
     final dir = _hiveTestDir;
     if (dir != null) {
       await disposeHiveTest(dir);
@@ -101,24 +120,54 @@ Future<Directory> initHiveTest() async {
 }
 
 Future<void> disposeHiveTest(Directory dir) async {
-  try {
-    await Hive.close();
-  } catch (_) {
-    // ignore
-  }
-
-  if (await dir.exists()) {
+  // ✅ 不管发生什么：tearDown 不能卡死 test 进程
+  // - Hive.close 偶发会挂住（文件句柄 / flush / 平台问题）
+  // - dir.delete 偶发会挂住（macOS/Windows 常见）
+  Future<void> safeCloseHive() async {
     try {
-      await dir.delete(recursive: true);
+      // ✅ 尝试先 flush（即使失败也继续）
+      for (final name in _openedBoxNames) {
+        try {
+          if (Hive.isBoxOpen(name)) {
+            await Hive.box(name).flush().timeout(const Duration(seconds: 1));
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+
+      await Hive.close().timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      // ignore: avoid_print
+      print('[hive_test_env] Hive.close timeout -> ignore to avoid hanging tests');
     } catch (_) {
       // ignore
     }
   }
 
+  Future<void> safeDeleteDir() async {
+    try {
+      final exists = await dir.exists().timeout(const Duration(seconds: 1));
+      if (!exists) return;
+
+      // ✅ 删除也加 timeout；失败就放过（临时目录残留可接受，挂死不可接受）
+      await dir.delete(recursive: true).timeout(const Duration(seconds: 2));
+    } on TimeoutException {
+      // ignore: avoid_print
+      print('[hive_test_env] temp dir delete timeout -> ignore to avoid hanging tests');
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  await safeCloseHive();
+  await safeDeleteDir();
+
   if (_hiveTestDir?.path == dir.path) {
     _hiveTestDir = null;
     _hiveInited = false;
     _openedBoxNames.clear();
+    _envRefCount = 0;
   }
 }
 
@@ -142,6 +191,7 @@ void _registerAdaptersIfNeeded() {
 
   // ✅ 必须注册（否则 userBox 写入会崩）
   if (!Hive.isAdapterRegistered(6)) Hive.registerAdapter(AppUserAdapter());
-  if (!Hive.isAdapterRegistered(7)) Hive.registerAdapter(AuthProviderTypeAdapter());
+  if (!Hive.isAdapterRegistered(7)) {
+    Hive.registerAdapter(AuthProviderTypeAdapter());
+  }
 }
-

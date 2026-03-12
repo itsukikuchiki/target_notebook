@@ -1,4 +1,5 @@
 // lib/providers/ai_breakdown_provider.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 
@@ -18,6 +19,20 @@ import 'goal_provider.dart';
 import 'sub_goal_provider.dart';
 import 'task_provider.dart';
 
+/// ✅ 测试/业务专用输入 DTO（避免 test 依赖 UI 文件）
+@immutable
+class AiBreakdownRunInput {
+  final String? description;
+  final DateTime? deadline;
+  final int weeklyHours;
+
+  const AiBreakdownRunInput({
+    this.description,
+    this.deadline,
+    this.weeklyHours = 5,
+  });
+}
+
 class AiBreakdownProvider extends ChangeNotifier {
   final AiService ai;
   final GoalProvider goalProvider;
@@ -34,6 +49,7 @@ class AiBreakdownProvider extends ChangeNotifier {
     required this.taskProvider,
   });
 
+  /// UI 入口：保持原样（BottomSheet + Preview）
   Future<void> openForGoalKey(BuildContext context, int goalKey) async {
     final goal = _getGoalByKey(goalKey);
     if (goal == null) {
@@ -41,7 +57,7 @@ class AiBreakdownProvider extends ChangeNotifier {
       return;
     }
 
-    // 1) 输入参数
+    // 1) 输入参数（UI）
     final input = await showModalBottomSheet<AiBreakdownInput>(
       context: context,
       isScrollControlled: true,
@@ -49,35 +65,22 @@ class AiBreakdownProvider extends ChangeNotifier {
     );
     if (input == null) return;
 
-    // 2) AI / fallback
-    loading = true;
-    error = null;
-    notifyListeners();
-
-    AiBreakdownResult result;
-    try {
-      result = await ai.breakdownGoal(
-        title: goal.title,
-        description: input.description,
-        deadline: input.deadline,
-        weeklyHours: input.weeklyHours,
-        locale: 'zh',
-      );
-      if (result.subGoals.isEmpty) {
-        result = LocalFallbackBreakdown.build(goal.title);
-      }
-    } catch (e) {
-      error = e.toString();
-      result = LocalFallbackBreakdown.build(goal.title);
+    // 2) AI / fallback（业务）
+    final initial = await _computeBreakdown(
+      goal: goal,
+      description: input.description,
+      deadline: input.deadline,
+      weeklyHours: input.weeklyHours,
+    );
+    if (initial == null) {
+      _toastIfMounted(context, '生成失败，请稍后重试');
+      return;
     }
 
-    loading = false;
-    notifyListeners();
-
-    // 3) 预览/编辑
+    // 3) 预览/编辑（UI）
     final edited = await Navigator.of(context).push<AiBreakdownResult>(
       MaterialPageRoute(
-        builder: (_) => AiBreakdownPreviewPage(initial: result),
+        builder: (_) => AiBreakdownPreviewPage(initial: initial),
       ),
     );
     if (edited == null) return;
@@ -87,8 +90,8 @@ class AiBreakdownProvider extends ChangeNotifier {
       return;
     }
 
-    // 4) 落库
-    final wrote = await _applyToHive(
+    // 4) 落库（业务）
+    final wrote = await _applyAndRefresh(
       goalKey: goalKey,
       goal: goal,
       breakdown: edited,
@@ -99,13 +102,85 @@ class AiBreakdownProvider extends ChangeNotifier {
       return;
     }
 
-    // 5) 刷新
+    notifyListeners();
+    _toastIfMounted(context, 'AI 分解已写入目标树');
+  }
+
+  /// ✅ 发布前稳定回归：纯业务入口（不依赖 BottomSheet/Preview）
+  @visibleForTesting
+  Future<bool> runBreakdownForGoalKey({
+    required int goalKey,
+    required AiBreakdownRunInput input,
+    AiBreakdownResult? editedOverride,
+  }) async {
+    final goal = _getGoalByKey(goalKey);
+    if (goal == null) return false;
+
+    final initial = await _computeBreakdown(
+      goal: goal,
+      description: input.description,
+      deadline: input.deadline,
+      weeklyHours: input.weeklyHours,
+    );
+    if (initial == null) return false;
+
+    final toWrite = editedOverride ?? initial;
+    if (toWrite.subGoals.isEmpty) return false;
+
+    return _applyAndRefresh(
+      goalKey: goalKey,
+      goal: goal,
+      breakdown: toWrite,
+    );
+  }
+
+  Future<AiBreakdownResult?> _computeBreakdown({
+    required Goal goal,
+    required String? description,
+    required DateTime? deadline,
+    required int weeklyHours,
+  }) async {
+    loading = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      var result = await ai.breakdownGoal(
+        title: goal.title,
+        description: description,
+        deadline: deadline,
+        weeklyHours: weeklyHours,
+        locale: 'zh',
+      );
+      if (result.subGoals.isEmpty) {
+        result = LocalFallbackBreakdown.build(goal.title);
+      }
+      return result;
+    } catch (e) {
+      error = e.toString();
+      return LocalFallbackBreakdown.build(goal.title);
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> _applyAndRefresh({
+    required int goalKey,
+    required Goal goal,
+    required AiBreakdownResult breakdown,
+  }) async {
+    final wrote = await _applyToHive(
+      goalKey: goalKey,
+      goal: goal,
+      breakdown: breakdown,
+    );
+    if (!wrote) return false;
+
     await subGoalProvider.init();
     await taskProvider.init();
     await goalProvider.init();
-
-    notifyListeners();
-    _toastIfMounted(context, 'AI 分解已写入目标树');
+    return true;
   }
 
   Goal? _getGoalByKey(int goalKey) {
@@ -156,7 +231,6 @@ class AiBreakdownProvider extends ChangeNotifier {
           '[AiBreakdownProvider] subGoal added key=$subGoalKey title="${subGoal.title}" tasks=${sgDraft.tasks.length}',
         );
 
-        // ✅ 一次性写入 tasks（避免逐条 await 卡住）
         final toAdd = <Task>[];
         for (final tDraft in sgDraft.tasks) {
           final due = DateTime.now().add(Duration(days: tDraft.dueInDays));
@@ -185,10 +259,7 @@ class AiBreakdownProvider extends ChangeNotifier {
           debugPrint(
             '[AiBreakdownProvider] task write begin: addAll(${toAdd.length}) taskBoxLen(before)=${taskBox.values.length}',
           );
-
           await taskBox.addAll(toAdd);
-          await taskBox.flush(); // ✅ 强制落盘/提交，测试里更稳定
-
           debugPrint(
             '[AiBreakdownProvider] task write done: taskBoxLen(after)=${taskBox.values.length}',
           );
@@ -213,4 +284,3 @@ class AiBreakdownProvider extends ChangeNotifier {
     );
   }
 }
-

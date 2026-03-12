@@ -43,6 +43,9 @@ class _TaskEditPageState extends State<TaskEditPage> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _noteCtrl;
 
+  // 🆕 topic（W6）
+  late final TextEditingController _topicCtrl;
+
   // 🆕 W6
   late final TextEditingController _locationCtrl;
   late final TextEditingController _participantsCtrl;
@@ -68,6 +71,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
     super.initState();
     _titleCtrl = TextEditingController();
     _noteCtrl = TextEditingController();
+    _topicCtrl = TextEditingController();
     _locationCtrl = TextEditingController();
     _participantsCtrl = TextEditingController();
   }
@@ -76,6 +80,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
   void dispose() {
     _titleCtrl.dispose();
     _noteCtrl.dispose();
+    _topicCtrl.dispose();
     _locationCtrl.dispose();
     _participantsCtrl.dispose();
     super.dispose();
@@ -100,6 +105,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
 
       _titleCtrl.text = t.title;
       _noteCtrl.text = t.note ?? '';
+      _topicCtrl.text = t.topic ?? '';
 
       _priority = t.priority;
       _isAllDay = t.isAllDay;
@@ -138,6 +144,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
 
       // 给个默认标题占位，用户可改
       _titleCtrl.text = '新任务';
+      _topicCtrl.text = '';
       _priority = 3;
       _isAllDay = false;
       _completion = 0.0;
@@ -159,6 +166,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
     _startAt = DateTime(base.year, base.month, base.day, 9, 0);
     _deadline = DateTime(base.year, base.month, base.day);
     _titleCtrl.text = '新任务';
+    _topicCtrl.text = '';
 
     // 🆕 W6 默认值
     _locationCtrl.text = '';
@@ -240,6 +248,8 @@ class _TaskEditPageState extends State<TaskEditPage> {
           ? null
           : _locationCtrl.text.trim();
 
+      final topic = _topicCtrl.text.trim().isEmpty ? null : _topicCtrl.text.trim();
+
       // ✅ alarm 逻辑（修复：默认值落在过去导致不调度）
       DateTime? alarmAt = _alarmAt;
       final now = DateTime.now();
@@ -263,6 +273,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
 
         final newTask = Task(
           title: title,
+          topic: topic,
           note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
           goalId: _createGoalId,
           subGoalId: _createSubGoalId,
@@ -310,6 +321,7 @@ class _TaskEditPageState extends State<TaskEditPage> {
       t
         ..title =
             _titleCtrl.text.trim().isEmpty ? t.title : _titleCtrl.text.trim()
+        ..topic = topic
         ..note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim()
         ..priority = _priority
         ..isAllDay = _isAllDay
@@ -414,6 +426,16 @@ class _TaskEditPageState extends State<TaskEditPage> {
                 ),
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? '请输入标题' : null,
+              ),
+              const SizedBox(height: 12),
+
+              // Topic（可选）
+              TextFormField(
+                controller: _topicCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Topic（可选）',
+                  hintText: '例如：Work / Study / Health',
+                ),
               ),
               const SizedBox(height: 12),
 
@@ -676,4 +698,3 @@ class _TimeRow extends StatelessWidget {
     );
   }
 }
-

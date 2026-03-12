@@ -1,9 +1,11 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hive/hive.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/hive_init.dart';
+import 'core/app_config.dart';
 
 import 'providers/nav_provider.dart';
 import 'providers/goal_provider.dart';
@@ -11,6 +13,7 @@ import 'providers/sub_goal_provider.dart';
 import 'providers/task_provider.dart';
 import 'providers/daily_log_provider.dart';
 import 'providers/user_provider.dart';
+import 'providers/settings_provider.dart';
 import 'providers/ai_breakdown_provider.dart';
 
 import 'adapters/goal_adapter.dart' as goal_vm;
@@ -20,6 +23,8 @@ import 'adapters/goal_tree_adapter.dart';
 
 import 'services/ai_service.dart';
 import 'services/notification_local_service.dart';
+import 'services/notification_service.dart';
+import 'services/holiday_service.dart';
 
 import 'models/goal.dart' as m;
 import 'models/task.dart' as m;
@@ -27,6 +32,7 @@ import 'models/daily_log.dart' as m;
 
 import 'app.dart';
 import 'pages/splash_page.dart';
+import 'pages/onboarding_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +45,7 @@ Future<void> main() async {
   // 2) Providers（先创建实例）
   final nav = NavProvider();
   final userP = UserProvider();
+  final settingsP = SettingsProvider();
 
   final goalP = GoalProvider();
   final subGoalP = SubGoalProvider();
@@ -49,16 +56,20 @@ Future<void> main() async {
   await nav.load();
 
   // 2.2) Notification
-  final notification = NotificationLocalService();
+  final NotificationService notification = NotificationLocalService();
   await notification.init();
 
-  // 2.3) init 顺序：User -> 业务数据
+  // ✅ bind notification -> user provider
+  userP.bindNotificationService(notification);
+
+  // 2.3) init 顺序：User -> Settings -> 业务数据
   await userP.init();
+  await settingsP.init();
 
   await goalP.init();
   await subGoalP.init();
 
-  // ✅ 关键：把 notification 传进 init（不要先 bind 再 init）
+  // ✅ 把 notification 传进 init
   await taskP.init(notification: notification);
 
   await logP.init();
@@ -83,14 +94,19 @@ Future<void> main() async {
     taskProvider: taskP,
   );
 
-  // 6) Run
+  // ✅ 6) HolidayService（发布级：在 main 创建并注入）
+  final holidayService = HolidayService(region: AppConfig.region);
+
+  // 7) Run
   runApp(
     MultiProvider(
       providers: [
-        Provider<NotificationLocalService>.value(value: notification),
+        Provider<NotificationService>.value(value: notification),
+        Provider<HolidayService>.value(value: holidayService),
+
         ChangeNotifierProvider.value(value: nav),
         ChangeNotifierProvider.value(value: userP),
-
+        ChangeNotifierProvider.value(value: settingsP),
         ChangeNotifierProvider.value(value: goalP),
         ChangeNotifierProvider.value(value: subGoalP),
         ChangeNotifierProvider.value(value: taskP),
@@ -99,7 +115,6 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: goalVM),
         ChangeNotifierProvider.value(value: taskVM),
         ChangeNotifierProvider.value(value: logVM),
-
         ChangeNotifierProvider.value(value: goalTreeVM),
         ChangeNotifierProvider.value(value: aiBreakdownP),
       ],
@@ -108,6 +123,7 @@ Future<void> main() async {
         home: const SplashPage(),
         routes: {
           '/home': (_) => const TargetNotebookApp(),
+          OnboardingPage.route: (_) => const OnboardingPage(),
         },
       ),
     ),

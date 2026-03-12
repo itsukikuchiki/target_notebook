@@ -1,4 +1,3 @@
-// lib/pages/ai_breakdown/ai_breakdown_preview_page.dart
 import 'package:flutter/material.dart';
 
 import '../../models/ai_breakdown_models.dart';
@@ -24,6 +23,8 @@ class _AiBreakdownPreviewPageState extends State<AiBreakdownPreviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('AI 分解预览'),
@@ -44,7 +45,7 @@ class _AiBreakdownPreviewPageState extends State<AiBreakdownPreviewPage> {
           return Card(
             elevation: 0,
             clipBehavior: Clip.antiAlias,
-            color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+            color: cs.surfaceVariant.withOpacity(0.5),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -84,31 +85,35 @@ class _AiBreakdownPreviewPageState extends State<AiBreakdownPreviewPage> {
                     ),
                   ]),
                   const SizedBox(height: 8),
-                  Row(children: [
-                    SizedBox(
-                      width: 140,
-                      child: DropdownButtonFormField<int>(
-                        value: sg.priority.clamp(1, 5),
-                        decoration: const InputDecoration(
-                          labelText: '优先度',
-                          border: OutlineInputBorder(),
+                  Row(
+                    children: [
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(minWidth: 120, maxWidth: 160),
+                        child: DropdownButtonFormField<int>(
+                          isExpanded: true,
+                          value: sg.priority.clamp(1, 5),
+                          decoration: const InputDecoration(
+                            labelText: '优先度',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [1, 2, 3, 4, 5]
+                              .map((p) => DropdownMenuItem(value: p, child: Text('P$p')))
+                              .toList(),
+                          onChanged: (v) => setState(() => sg.priority = v ?? 3),
                         ),
-                        items: const [1, 2, 3, 4, 5].map((p) {
-                          return DropdownMenuItem(value: p, child: Text('P$p'));
-                        }).toList(),
-                        onChanged: (v) => setState(() => sg.priority = v ?? 3),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '预计 ${sg.estimateDays} 天 · 任务 ${sg.tasks.length} 条',
-                        style: const TextStyle(color: Colors.black54),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          '预计 ${sg.estimateDays} 天 · 任务 ${sg.tasks.length} 条',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: cs.onSurfaceVariant),
+                        ),
                       ),
-                    ),
-                  ]),
+                    ],
+                  ),
                   const SizedBox(height: 10),
-
                   ...sg.tasks.asMap().entries.map((entry) {
                     final idx = entry.key;
                     final t = entry.value;
@@ -118,7 +123,6 @@ class _AiBreakdownPreviewPageState extends State<AiBreakdownPreviewPage> {
                       onChanged: () => setState(() {}),
                     );
                   }),
-
                   const SizedBox(height: 8),
                   Align(
                     alignment: Alignment.centerLeft,
@@ -158,6 +162,8 @@ class _TaskEditorRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Row(
@@ -177,17 +183,18 @@ class _TaskEditorRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          SizedBox(
-            width: 90,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 84, maxWidth: 110),
             child: DropdownButtonFormField<int>(
+              isExpanded: true,
               value: task.minutes.clamp(15, 240),
               decoration: const InputDecoration(
                 labelText: '分钟',
                 border: OutlineInputBorder(),
               ),
-              items: const [15, 30, 45, 60, 90, 120].map((m) {
-                return DropdownMenuItem(value: m, child: Text('$m'));
-              }).toList(),
+              items: const [15, 30, 45, 60, 90, 120]
+                  .map((m) => DropdownMenuItem(value: m, child: Text('$m')))
+                  .toList(),
               onChanged: (v) {
                 task.minutes = v ?? task.minutes;
                 onChanged();
@@ -195,27 +202,33 @@ class _TaskEditorRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          SizedBox(
-            width: 70,
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 64, maxWidth: 84),
             child: DropdownButtonFormField<int>(
+              isExpanded: true,
               value: task.priority.clamp(1, 5),
               decoration: const InputDecoration(
                 labelText: 'P',
                 border: OutlineInputBorder(),
               ),
-              items: const [1, 2, 3, 4, 5].map((p) {
-                return DropdownMenuItem(value: p, child: Text('$p'));
-              }).toList(),
+              items: const [1, 2, 3, 4, 5]
+                  .map((p) => DropdownMenuItem(value: p, child: Text('$p')))
+                  .toList(),
               onChanged: (v) {
                 task.priority = v ?? task.priority;
                 onChanged();
               },
             ),
           ),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.close)),
+          IconButton(
+            tooltip: '删除任务',
+            onPressed: onDelete,
+            icon: Icon(Icons.close, color: cs.onSurfaceVariant),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          ),
         ],
       ),
     );
   }
 }
-

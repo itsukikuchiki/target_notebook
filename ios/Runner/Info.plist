@@ -61,15 +61,24 @@
     <false/>
 
     <!-- 网络（如果你以后用 API / Firebase） -->
+    <!-- 网络（如果你以后用 API / Firebase） -->
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
 
+    <!-- 相册权限（头像上传 / 图片选择） -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>用于选择头像图片</string>
+
     <!-- 后台模式（当前未启用，保留空） -->
     <key>UIBackgroundModes</key>
     <array/>
 
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
 </dict>
 </plist>

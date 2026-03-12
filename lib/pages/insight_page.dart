@@ -10,16 +10,13 @@ class InsightPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final adapter = context.watch<DailyLogAdapter>();
-    final vm = adapter.weeklyStats();
+    final vm = context.select<DailyLogAdapter, WeeklyVM>((a) => a.weeklyStats());
+    final goals = context.select<GoalTreeAdapter, List<GoalNode>>((g) => g.goals);
 
     final totalHours = vm.hoursByDay.values.fold<double>(0.0, (a, b) => a + b);
     final desc = vm.message.isNotEmpty
         ? vm.message
         : '本周累计 ${totalHours.toStringAsFixed(1)} 小时，完成率 ${(vm.completionRate * 100).toStringAsFixed(0)}%。';
-
-    final goalTree = context.watch<GoalTreeAdapter>();
-    final goals = goalTree.goals;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Insight')),
@@ -33,18 +30,14 @@ class InsightPage extends StatelessWidget {
               value: vm.completionRate.clamp(0.0, 1.0),
               minHeight: 8,
             ),
-
-            // ✅ W6：闭环行动栏（切换 BottomNav 的 tab）
             const SizedBox(height: 12),
             _LoopActionBar(
               onGoJourney: () => context.read<NavProvider>().setIndex(0),
               onGoDaily: () => context.read<NavProvider>().setIndex(1),
               onGoReflection: () => context.read<NavProvider>().setIndex(3),
             ),
-
             const SizedBox(height: 16),
             _WeekBars(hoursByDay: vm.hoursByDay),
-
             const SizedBox(height: 24),
             Row(
               children: [
@@ -63,7 +56,6 @@ class InsightPage extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-
             if (goals.isEmpty)
               const Text(
                 '还没有目标。去 My Journey 新建一个目标吧。',
@@ -77,6 +69,8 @@ class InsightPage extends StatelessWidget {
     );
   }
 }
+
+// ====== 以下保持你原逻辑 ======
 
 class _LoopActionBar extends StatelessWidget {
   final VoidCallback onGoJourney;
@@ -99,10 +93,7 @@ class _LoopActionBar extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '闭环行动',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
+            const Text('闭环行动', style: TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -184,7 +175,6 @@ class _GoalBurnCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-
             LinearProgressIndicator(value: progress, minHeight: 8),
             const SizedBox(height: 8),
             Text(
@@ -192,7 +182,6 @@ class _GoalBurnCard extends StatelessWidget {
               style: const TextStyle(fontSize: 12, color: Colors.black54),
             ),
             const SizedBox(height: 10),
-
             Row(
               children: [
                 Expanded(
@@ -214,7 +203,6 @@ class _GoalBurnCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 8),
             Text(
               '注：当前为“快照版”（未记录完成时间，无法画历史曲线）。',

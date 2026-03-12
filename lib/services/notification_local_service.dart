@@ -1,18 +1,24 @@
+// lib/services/notification_local_service.dart
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+
+import 'notification_service_interface.dart';
 
 /// W6: 本地通知（MVP）
 ///
 /// - main.dart 里调用 init()
 /// - Splash 再调用 ensureReady() 兜底
 /// - 对有 alarm 的 Task 做 schedule / cancel
-class NotificationLocalService {
+class NotificationLocalService implements NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
   bool _inited = false;
+
+  @override
   bool get isReady => _inited;
 
   static const String _channelId = 'task_alarm_channel';
@@ -20,6 +26,7 @@ class NotificationLocalService {
   static const String _channelDesc = 'Notifications for scheduled task alarms';
 
   /// 初始化（尽量“无侵入”：失败不崩）
+  @override
   Future<void> init() async {
     if (_inited) return;
 
@@ -57,6 +64,7 @@ class NotificationLocalService {
   }
 
   /// Splash 兜底调用：确保 init 被执行过
+  @override
   Future<void> ensureReady() async {
     if (_inited) return;
     await init();
@@ -66,6 +74,7 @@ class NotificationLocalService {
   ///
   /// - id：建议用 taskId 的 int（Hive key）
   /// - at：提醒时间（本地时区）
+  @override
   Future<void> scheduleOne({
     required int id,
     required DateTime at,
@@ -114,6 +123,7 @@ class NotificationLocalService {
   }
 
   /// 取消某条通知
+  @override
   Future<void> cancel(int id) async {
     if (!_inited) await init();
     if (!_inited) return;
@@ -126,6 +136,7 @@ class NotificationLocalService {
   }
 
   /// 取消所有通知（用于“删除账号&数据”）
+  @override
   Future<void> cancelAll() async {
     if (!_inited) await init();
     if (!_inited) return;
@@ -146,7 +157,6 @@ class NotificationLocalService {
       tzdata.initializeTimeZones();
 
       // 你的项目默认时区：东京（JST）
-      // 如果未来要按设备时区：可用 native_timezone 插件取设备时区名再 getLocation()
       tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
     } catch (e) {
       debugPrint('[NotificationLocalService] timezone init failed: $e');
@@ -155,7 +165,6 @@ class NotificationLocalService {
   }
 
   tz.TZDateTime _toTz(DateTime dt) {
-    // tz.local 已在 init 时设置为 Asia/Tokyo（尽量稳定）
     return tz.TZDateTime.from(dt, tz.local);
   }
 

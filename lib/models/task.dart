@@ -84,6 +84,12 @@ class Task extends HiveObject {
   @HiveField(18)
   int? color;
 
+  // ====== W6 Additions (append-only) ======
+
+  /// 话题/主题（例如：Work / Study / Health / Project X）
+  @HiveField(19)
+  String? topic;
+
   Task({
     required this.title,
     this.note,
@@ -106,6 +112,9 @@ class Task extends HiveObject {
     this.deadline,
     this.photoPath,
     this.color,
+
+    // w6
+    this.topic,
   });
 
   // ====== Convenience getters (non-persisted) ======
@@ -154,6 +163,7 @@ class Task extends HiveObject {
         'deadline': deadline?.toIso8601String(),
         'photoPath': photoPath,
         'color': color,
+        'topic': topic,
       };
 
   static Task fromMap(Map<String, dynamic> m) => Task(
@@ -184,6 +194,6 @@ class Task extends HiveObject {
             : null,
         photoPath: m['photoPath'] as String?,
         color: m['color'] as int?,
+        topic: m['topic'] as String?,
       );
 }
-

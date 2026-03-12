@@ -8,14 +8,52 @@ import '../adapters/goal_tree_adapter.dart';
 
 import '../models/task.dart' show Task hide TaskAdapter;
 import '../providers/task_provider.dart';
+import '../providers/settings_provider.dart';
 
 import '../services/holiday_service.dart';
 import 'editors/task_edit_page.dart';
 
 enum _DailyView { week, month }
 
+/// ===============================
+/// Pure helpers (unit-testable)
+/// ===============================
+
+String dailyDateKey(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+DateTime dailyDateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+bool dailyIsSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// Week strip visible days depends on WeekStart
+List<DateTime> dailyVisibleDaysForWeekStrip(DateTime selected, WeekStart weekStart) {
+  final s = dailyDateOnly(selected);
+  final weekday = s.weekday; // Mon=1..Sun=7
+
+  final int offset;
+  switch (weekStart) {
+    case WeekStart.monday:
+      offset = weekday - 1; // Mon -> 0, Sun -> 6
+      break;
+    case WeekStart.sunday:
+      offset = weekday % 7; // Sun(7)->0, Mon(1)->1 ... Sat(6)->6
+      break;
+  }
+
+  final startOfWeek = s.subtract(Duration(days: offset));
+  return List.generate(7, (i) => startOfWeek.add(Duration(days: i)));
+}
+
 class DailyPage extends StatefulWidget {
-  const DailyPage({super.key});
+  const DailyPage({
+    super.key,
+    this.initialDate,
+  });
+
+  /// Optional initial date for selected day (useful for widget tests / deep links).
+  final DateTime? initialDate;
 
   @override
   State<DailyPage> createState() => _DailyPageState();
@@ -23,7 +61,9 @@ class DailyPage extends StatefulWidget {
 
 class _DailyPageState extends State<DailyPage> {
   _DailyView _view = _DailyView.week;
-  DateTime _selectedDate = DateTime.now();
+
+  // ✅ Make it controllable in tests.
+  late DateTime _selectedDate;
 
   int? _timerTaskId;
   bool _timerRunning = false;
@@ -37,6 +77,10 @@ class _DailyPageState extends State<DailyPage> {
   @override
   void initState() {
     super.initState();
+
+    // ✅ Allow tests to control initial selected date.
+    _selectedDate = widget.initialDate ?? DateTime.now();
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _refreshHolidayCacheForCurrentView();
       if (mounted) setState(() => _holidayLoaded = true);
@@ -52,27 +96,25 @@ class _DailyPageState extends State<DailyPage> {
 
   // ---------------- Holiday ----------------
 
-  String _dateKey(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String _dateKey(DateTime d) => dailyDateKey(d);
 
-  bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
+  bool _isSameDay(DateTime a, DateTime b) => dailyIsSameDay(a, b);
 
-  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+  DateTime _dateOnly(DateTime d) => dailyDateOnly(d);
 
   bool _isHoliday(DateTime day) => _holidayCache.containsKey(_dateKey(day));
   String? _holidayName(DateTime day) => _holidayCache[_dateKey(day)];
 
+  HolidayService _holidaySvc() => context.read<HolidayService>();
+
   Future<void> _prefetchYearsAround(DateTime day) async {
     final years = {day.year - 1, day.year, day.year + 1};
-    await HolidayService.I.prefetchYears(years);
+    await _holidaySvc().prefetchYears(years);
   }
 
   List<DateTime> _visibleDaysForWeekStrip(DateTime selected) {
-    final s = _dateOnly(selected);
-    final weekday = s.weekday; // Mon=1..Sun=7
-    final startOfWeek = s.subtract(Duration(days: weekday - 1));
-    return List.generate(7, (i) => startOfWeek.add(Duration(days: i)));
+    final weekStart = context.read<SettingsProvider>().weekStart;
+    return dailyVisibleDaysForWeekStrip(selected, weekStart);
   }
 
   Future<void> _refreshHolidayCacheForCurrentView() async {
@@ -83,7 +125,7 @@ class _DailyPageState extends State<DailyPage> {
     if (_view == _DailyView.week) {
       final days = _visibleDaysForWeekStrip(selected);
       for (final d in days) {
-        final name = await HolidayService.I.nameOf(d);
+        final name = await _holidaySvc().nameOf(d);
         final k = _dateKey(d);
         if (name != null && name.trim().isNotEmpty) {
           _holidayCache[k] = name;
@@ -94,7 +136,7 @@ class _DailyPageState extends State<DailyPage> {
       return;
     }
 
-    final name = await HolidayService.I.nameOf(selected);
+    final name = await _holidaySvc().nameOf(selected);
     final k = _dateKey(selected);
     if (name != null && name.trim().isNotEmpty) {
       _holidayCache[k] = name;
@@ -121,6 +163,9 @@ class _DailyPageState extends State<DailyPage> {
   Widget build(BuildContext context) {
     final daily = context.watch<DailyLogAdapter>();
     final taskAdapter = context.watch<TaskAdapter>();
+
+    // ✅ 触发 rebuild：周开始日切换后，周视图当天序列必须变化
+    context.watch<SettingsProvider>();
 
     final tasks = taskAdapter.tasksForDate(_selectedDate);
 
@@ -159,10 +204,7 @@ class _DailyPageState extends State<DailyPage> {
                 const SizedBox(height: 16),
                 _buildKpiCard(daily),
                 const SizedBox(height: 16),
-
-                // ✅ W6：Top3 变成可操作卡片
                 _buildTop3Card(taskAdapter),
-
                 const SizedBox(height: 16),
                 _buildTaskList(taskAdapter, tasks),
                 const SizedBox(height: 16),
@@ -219,6 +261,7 @@ class _DailyPageState extends State<DailyPage> {
                 if (holiday != null)
                   Text(
                     holiday,
+                    key: const Key('daily.holiday.name'),
                     style: const TextStyle(color: Colors.red, fontSize: 12),
                   ),
                 const Spacer(),
@@ -255,7 +298,6 @@ class _DailyPageState extends State<DailyPage> {
     final selected = _dateOnly(_selectedDate);
     final days = _visibleDaysForWeekStrip(selected);
 
-    // ✅ 测试环境可能没有提供 GoalTreeAdapter / TaskProvider：降级为空，不要抛 ProviderNotFound
     final GoalTreeAdapter? goalTree = Provider.of<GoalTreeAdapter?>(context);
     final TaskProvider? taskProvider = Provider.of<TaskProvider?>(context);
 
@@ -297,7 +339,6 @@ class _DailyPageState extends State<DailyPage> {
             children: days.map((d) {
               final isSelected = _isSameDay(d, selected);
               final isHoliday = _isHoliday(d);
-
               final dotColors = _dayDotColors(d);
 
               return Expanded(
@@ -425,13 +466,10 @@ class _DailyPageState extends State<DailyPage> {
     );
   }
 
-  // ---------------- 今日三件事（W6：可拖拽 + pin） ----------------
+  // ---------------- 今日三件事 ----------------
 
   Widget _buildTop3Card(TaskAdapter taskAdapter) {
-    // 数据源仍用 Adapter，保证你现有测试/逻辑不受影响
     final top3 = taskAdapter.top3ForDate(_selectedDate);
-
-    // 用 Provider 来写入：pin 与排序
     final TaskProvider? taskProvider = Provider.of<TaskProvider?>(context);
 
     return Card(
@@ -445,21 +483,14 @@ class _DailyPageState extends State<DailyPage> {
               children: [
                 const Text('今日三件事', style: TextStyle(fontWeight: FontWeight.w700)),
                 const Spacer(),
-                Text(
-                  '${top3.length}/3',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
-                ),
+                Text('${top3.length}/3', style: const TextStyle(fontSize: 12, color: Colors.black54)),
               ],
             ),
             const SizedBox(height: 8),
-
             if (top3.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  '今天还没有任务。点右下角「+」创建一个吧。',
-                  style: TextStyle(color: Colors.black54),
-                ),
+                child: Text('今天还没有任务。点右下角「+」创建一个吧。', style: TextStyle(color: Colors.black54)),
               )
             else
               ReorderableListView(
@@ -472,7 +503,6 @@ class _DailyPageState extends State<DailyPage> {
                   final item = list.removeAt(oldIndex);
                   list.insert(newIndex, item);
 
-                  // 写回当天顺序（如果缺 provider，就只做 UI 级别，不崩）
                   final keys = list.map((t) => t.id).toList();
                   if (taskProvider != null) {
                     taskProvider.setTop3Order(_selectedDate, keys);
@@ -508,7 +538,6 @@ class _DailyPageState extends State<DailyPage> {
                     ),
                 ],
               ),
-
             const SizedBox(height: 6),
             const Text(
               '规则：优先展示你手动置顶（pin）的任务，不足再按优先度+deadline 自动补齐；拖拽可调整顺序。',
@@ -766,17 +795,10 @@ class _Top3Tile extends StatelessWidget {
         radius: 14,
         child: Text(numLabel, style: const TextStyle(fontSize: 12)),
       ),
-      title: Text(
-        task.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: (task.deadline == null && (task as dynamic).startAt == null)
           ? null
-          : Text(
-              _sub(task),
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
-            ),
+          : Text(_sub(task), style: const TextStyle(fontSize: 12, color: Colors.black54)),
       onTap: onTap,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -809,9 +831,7 @@ class _Top3Tile extends StatelessWidget {
       final DateTime? startAt = (t as dynamic).startAt as DateTime?;
       final bool isAllDay = (t as dynamic).isAllDay == true;
       if (startAt != null && !isAllDay) {
-        parts.add(
-          '${startAt.hour.toString().padLeft(2, '0')}:${startAt.minute.toString().padLeft(2, '0')}',
-        );
+        parts.add('${startAt.hour.toString().padLeft(2, '0')}:${startAt.minute.toString().padLeft(2, '0')}');
       }
     } catch (_) {}
     final pri = (t as dynamic).priority as int?;
@@ -819,4 +839,3 @@ class _Top3Tile extends StatelessWidget {
     return parts.join(' · ');
   }
 }
-
