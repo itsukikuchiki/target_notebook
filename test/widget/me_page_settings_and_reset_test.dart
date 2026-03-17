@@ -1,66 +1,73 @@
-// test/widget/me_page_settings_and_reset_test.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:target_notebook/pages/me_page.dart';
 import 'package:target_notebook/providers/settings_provider.dart';
 import 'package:target_notebook/providers/user_provider.dart';
-import 'package:target_notebook/services/notification_local_service.dart';
+import 'package:target_notebook/services/notification_service_interface.dart';
 
+import '../fakes/fake_settings_provider.dart';
 import '../fakes/fake_user_provider.dart';
-import '../fakes/always_ready_notification_local_service.dart';
-import '../helpers/hive_test_env.dart';
 import '../helpers/pump_settle_safe.dart';
+
+class _NotifNoop implements NotificationService {
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<void> ensureReady() async {}
+
+  @override
+  Future<void> scheduleOne({
+    required int id,
+    required DateTime at,
+    required String title,
+    required String body,
+  }) async {}
+
+  @override
+  Future<void> cancel(int id) async {}
+
+  @override
+  Future<void> cancelAll() async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  setUpAll(() async {
-    await HiveTestEnv.setUp();
-  });
-
-  setUp(() async {
-    SharedPreferences.setMockInitialValues({});
-    await clearHiveBoxes();
-  });
-
-  tearDownAll(() async {
-    await HiveTestEnv.tearDown();
-  });
 
   Future<void> _pumpPage(
     WidgetTester tester, {
     required UserProvider user,
     required SettingsProvider settings,
-    NotificationLocalService? notification,
   }) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           ChangeNotifierProvider<UserProvider>.value(value: user),
           ChangeNotifierProvider<SettingsProvider>.value(value: settings),
-          Provider<NotificationLocalService>.value(
-            value: notification ?? AlwaysReadyNotificationLocalService(),
-          ),
+          Provider<NotificationService>.value(value: _NotifNoop()),
         ],
-        child: const TickerMode(
-          enabled: false,
-          child: MaterialApp(home: Scaffold(body: MePage())),
-        ),
+        child: const MaterialApp(home: Scaffold(body: MePage())),
       ),
     );
 
-    await pumpFrames(tester, frames: 3);
-    await tester.pump(const Duration(milliseconds: 150));
+    await pumpFrames(tester, frames: 2);
+    await tester.pump(const Duration(milliseconds: 80));
   }
 
   testWidgets(
     'MePage: sound picker -> select Bell -> save -> SettingsProvider updated',
     (tester) async {
-      final settings = SettingsProvider();
-      await settings.init();
+      final settings = FakeSettingsProvider(
+        inited: true,
+        seenOnboarding: true,
+        weekStart: WeekStart.monday,
+        soundId: SoundId.none,
+      );
 
       await _pumpPage(
         tester,
@@ -70,34 +77,34 @@ void main() {
 
       expect(settings.soundId, SoundId.none);
 
-      await tester.tap(find.byKey(const Key('me.settings.sound')));
+      await tester.tap(find.byKey(MePage.soundTileKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 120));
 
       expect(find.text('选择提示音'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('me.sound.option.bell')));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 80));
+      await tester.pump(const Duration(milliseconds: 60));
 
-      await tester.tap(find.byKey(const Key('me.sound.save')));
+      await tester.tap(find.byKey(MePage.soundSaveKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 120));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(settings.soundId, SoundId.bell);
       expect(find.text('Bell（铃）'), findsWidgets);
-
-      await pumpAndSettleSafe(tester, maxFrames: 20);
     },
   );
 
   testWidgets(
     'MePage: weekStart picker -> select Sunday -> save -> SettingsProvider updated',
     (tester) async {
-      final settings = SettingsProvider();
-      await settings.init();
+      final settings = FakeSettingsProvider(
+        inited: true,
+        seenOnboarding: true,
+        weekStart: WeekStart.monday,
+        soundId: SoundId.none,
+      );
 
       await _pumpPage(
         tester,
@@ -107,35 +114,35 @@ void main() {
 
       expect(settings.weekStart, WeekStart.monday);
 
-      await tester.tap(find.byKey(const Key('me.settings.week_start')));
+      await tester.tap(find.byKey(MePage.weekStartTileKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 120));
 
-      expect(find.text('周开始日'), findsOneWidget);
+      expect(find.text('周开始日'), findsWidgets);
+      expect(find.byKey(MePage.weekStartSaveKey), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('me.week_start.option.sunday')));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 80));
+      await tester.pump(const Duration(milliseconds: 60));
 
-      await tester.tap(find.byKey(const Key('me.week_start.save')));
+      await tester.tap(find.byKey(MePage.weekStartSaveKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 120));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(settings.weekStart, WeekStart.sunday);
       expect(find.text('周日'), findsWidgets);
-
-      await pumpAndSettleSafe(tester, maxFrames: 20);
     },
   );
 
   testWidgets(
     'MePage forgot password: submit -> calls UserProvider.resetPassword',
     (tester) async {
-      final settings = SettingsProvider();
-      await settings.init();
-
+      final settings = FakeSettingsProvider(
+        inited: true,
+        seenOnboarding: true,
+        weekStart: WeekStart.monday,
+        soundId: SoundId.none,
+      );
       final fakeUser = FakeUserProvider();
 
       await _pumpPage(
@@ -144,32 +151,27 @@ void main() {
         settings: settings,
       );
 
-      await tester.tap(find.byKey(const Key('me.auth.open')));
+      await tester.tap(find.byKey(MePage.authTileKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 120));
 
       expect(find.text('忘记密码？'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('btn_forgot_password')));
+      await tester.tap(find.byKey(MePage.forgotButtonKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 120));
 
-      await tester.enterText(find.byKey(const Key('forgot.email')), 'A@Test.com');
-      await tester.enterText(find.byKey(const Key('forgot.newpw')), 'newpw');
+      await tester.enterText(find.byKey(MePage.forgotEmailKey), 'A@Test.com');
+      await tester.enterText(find.byKey(MePage.forgotNewPasswordKey), 'newpw');
       await tester.pump();
 
-      await tester.tap(find.byKey(const Key('forgot.submit')));
+      await tester.tap(find.byKey(MePage.forgotSubmitKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
-      await pumpFrames(tester, frames: 2);
+      await tester.pump(const Duration(milliseconds: 120));
 
       expect(fakeUser.resetPasswordCalled, true);
       expect(fakeUser.lastResetEmail, 'a@test.com');
       expect(find.textContaining('已记录重置请求'), findsOneWidget);
-
-      await pumpAndSettleSafe(tester, maxFrames: 20);
     },
   );
 }

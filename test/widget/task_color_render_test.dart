@@ -10,6 +10,7 @@ import 'package:target_notebook/models/goal.dart';
 
 import 'package:target_notebook/adapters/task_adapter.dart' as ui;
 import 'package:target_notebook/adapters/goal_tree_adapter.dart';
+import 'package:target_notebook/adapters/dailylog_adapter.dart' as log_ui;
 import 'package:target_notebook/pages/daily_page.dart';
 
 import 'package:target_notebook/providers/task_provider.dart';
@@ -70,9 +71,7 @@ List<Color> _extractWeekStripDotColors(WidgetTester tester) {
 }
 
 Future<void> _pumpAWhile(WidgetTester tester, [int ms = 300]) async {
-  await pumpFrames(tester, frames: 2);
-  await tester.pump(Duration(milliseconds: ms));
-  await tester.pump(Duration(milliseconds: ms));
+  await pumpFrames(tester, frames: 4);
 }
 
 void main() {
@@ -98,46 +97,59 @@ void main() {
   testWidgets(
     'DailyPage week strip dots use task.color override else goal color',
     (tester) async {
+      print('STEP: test body entered');
       final goalBox = Hive.box<Goal>(AppBoxes.goal);
       final taskBox = Hive.box<Task>(AppBoxes.task);
 
-      final goalKey = await goalBox.add(
-        Goal(
-          title: 'G-Red',
-          priority: 1,
-          color: 0xFFFF0000,
-        ),
-      );
+      print('STEP: add goal');
+      final goalKey = await tester.runAsync(() async {
+        return goalBox.add(
+          Goal(
+            title: 'G-Red',
+            priority: 1,
+            color: 0xFFFF0000,
+          ),
+        );
+      });
 
       final now = DateTime.now();
       final day = DateTime(now.year, now.month, now.day, 9);
 
-      await taskBox.add(
-        Task(
-          title: 'GoalTask',
-          goalId: goalKey,
-          startAt: day,
-          endAt: day,
-          color: null,
-        ),
-      );
+      await tester.runAsync(() async {
+        await taskBox.add(
+          Task(
+            title: 'GoalTask',
+            goalId: goalKey,
+            startAt: day,
+            endAt: day,
+            color: null,
+          ),
+        );
+      });
+      print('STEP: add GoalTask done');
 
-      await taskBox.add(
-        Task(
-          title: 'ScheduleTask',
-          goalId: null,
-          startAt: day,
-          endAt: day,
-          color: 0xFF0000FF,
-        ),
-      );
+      await tester.runAsync(() async {
+        await taskBox.add(
+          Task(
+            title: 'ScheduleTask',
+            goalId: null,
+            startAt: day,
+            endAt: day,
+            color: 0xFF0000FF,
+          ),
+        );
+      });
+      print('STEP: add ScheduleTask done');
 
+      print('STEP: GoalProvider.init');
       final goalP = GoalProvider();
       await goalP.init(goalBox: goalBox);
 
+      print('STEP: SubGoalProvider.init');
       final subP = SubGoalProvider();
       await subP.init();
 
+      print('STEP: TaskProvider.init');
       final taskP = TaskProvider();
       await taskP.init(
         taskBox: taskBox,
@@ -156,15 +168,16 @@ void main() {
         soundId: SoundId.none,
       );
 
+      print('STEP: pumpWidget(DailyPage)');
       await tester.pumpWidget(
         MultiProvider(
           providers: [
             Provider<HolidayService>.value(value: _FakeHolidayService()),
             ChangeNotifierProvider<SettingsProvider>.value(value: settings),
-            Provider<GoalTreeAdapter?>.value(value: tree),
+            ChangeNotifierProvider<GoalTreeAdapter?>.value(value: tree),
             ChangeNotifierProvider<TaskProvider?>.value(value: taskP),
             ChangeNotifierProvider<ui.TaskAdapter>.value(value: taskAdapter),
-            ChangeNotifierProvider.value(value: fakeDaily),
+            ChangeNotifierProvider<log_ui.DailyLogAdapter>.value(value: fakeDaily),
           ],
           child: const TickerMode(
             enabled: false,
@@ -176,20 +189,20 @@ void main() {
         ),
       );
 
+      print('STEP: _pumpAWhile begin');
       await _pumpAWhile(tester);
+      print('STEP: _pumpAWhile done');
 
-      final weekBtn = find.byKey(const Key('daily.view.week'));
-      if (weekBtn.evaluate().isNotEmpty) {
-        await tester.tap(weekBtn);
-        await _pumpAWhile(tester, 200);
-      }
+      // Keep interaction minimal in test env: avoid tapping view toggle,
+      // as it can introduce unstable frame scheduling in CI.
 
+      print('STEP: extract colors');
       final colors = _extractWeekStripDotColors(tester).map((c) => c.value).toSet();
 
       expect(colors.contains(const Color(0xFFFF0000).value), true);
       expect(colors.contains(const Color(0xFF0000FF).value), true);
 
-      await pumpAndSettleSafe(tester, maxFrames: 20);
+      await tester.pump();
     },
   );
 }

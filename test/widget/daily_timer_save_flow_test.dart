@@ -36,7 +36,7 @@ class _FakeHolidayService extends HolidayService {
   void clearCache() {}
 }
 
-/// ✅ 只截获 addQuickLog 参数，不碰 Hive
+/// 只截获 addQuickLog 参数，不碰 Hive
 class FakeDailyLogProvider extends DailyLogProvider {
   int calls = 0;
   DateTime? lastDate;
@@ -47,7 +47,7 @@ class FakeDailyLogProvider extends DailyLogProvider {
 
   @override
   Future<void> init({logBox, String boxName = 'dailyLog'}) async {
-    // no-op: 不开 box
+    // no-op
   }
 
   @override
@@ -72,7 +72,7 @@ class FakeDailyLogProvider extends DailyLogProvider {
   }
 }
 
-/// ✅ 纯内存 TaskAdapter：让 DailyPage 能渲染任务列表，并提供 timer key
+/// 纯内存 TaskAdapter：让 DailyPage 能渲染任务列表，并提供 timer key
 class FakeTaskAdapter extends ChangeNotifier implements ui.TaskAdapter {
   @override
   final TaskProvider src = TaskProvider();
@@ -146,7 +146,6 @@ void main() {
       );
 
       final holidaySvc = _FakeHolidayService();
-
       final fakeLogs = FakeDailyLogProvider();
       final dailyAdapter = DailyLogAdapter(fakeLogs);
 
@@ -155,11 +154,11 @@ void main() {
         ui.TaskVM(
           taskId,
           'TIMER-1',
-          DateTime.now(),
+          DateTime(2026, 3, 17, 9, 0),
           false,
           priority: 3,
-          startAt: DateTime.now(),
-          endAt: DateTime.now(),
+          startAt: DateTime(2026, 3, 17, 9, 0),
+          endAt: DateTime(2026, 3, 17, 9, 30),
         ),
       ]);
 
@@ -173,24 +172,51 @@ void main() {
             Provider<TaskProvider?>.value(value: null),
             Provider<GoalTreeAdapter?>.value(value: null),
           ],
-          child: const TickerMode(
-            enabled: false,
-            child: MaterialApp(home: DailyPage()),
-          ),
+          child: const MaterialApp(home: DailyPage()),
         ),
       );
 
       await pumpFrames(tester, frames: 5);
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('TIMER-1'), findsOneWidget);
 
-      final timerKey = const Key('daily.task.timer.1001');
+      final timerFinder = find.byKey(const Key('daily.task.timer.1001'));
+      expect(timerFinder, findsOneWidget);
 
-      await tester.tap(find.byKey(timerKey));
+      // 先确保可视，再点击，避免 hitTest miss
+      await tester.ensureVisible(timerFinder);
       await tester.pump();
 
-      await tester.tap(find.byKey(timerKey));
+      // 兜底滚动，适配小 viewport / CI
+      final scrollable = find.byType(Scrollable);
+      if (scrollable.evaluate().isNotEmpty) {
+        await tester.scrollUntilVisible(
+          timerFinder,
+          120.0,
+          scrollable: scrollable.first,
+        );
+        await tester.pump();
+      }
+
+      final firstButton = tester.widget<IconButton>(timerFinder);
+      expect(firstButton.onPressed != null, true);
+
+      // 第一次点击：开始计时
+      await tester.tap(timerFinder);
       await tester.pump();
+
+      // 第二次点击前再次保证可点击
+      await tester.ensureVisible(timerFinder);
+      await tester.pump();
+
+      final secondButton = tester.widget<IconButton>(timerFinder);
+      expect(secondButton.onPressed != null, true);
+
+      // 第二次点击：停止计时并弹出保存对话框
+      await tester.tap(timerFinder);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
 
       expect(find.text('保存计时记录'), findsOneWidget);
       expect(find.byKey(const Key('daily.timer.save')), findsOneWidget);
@@ -203,7 +229,7 @@ void main() {
       expect(fakeLogs.lastTaskId, taskId);
       expect(fakeLogs.lastContent, contains('计时-'));
 
-      await pumpAndSettleSafe(tester, maxFrames: 30);
+      await pumpAndSettleSafe(tester, maxFrames: 20);
     },
   );
 }

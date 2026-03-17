@@ -4,6 +4,7 @@ import 'helpers/hive_test_env.dart';
 
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   await ensureHiveReady();
+  await prepareHiveBoxes();
 
   try {
     await testMain();

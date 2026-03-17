@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/notification_local_service.dart';
+import '../services/notification_service_interface.dart';
 import 'legal_page.dart';
 import '../utils/legal_i18n.dart';
 
@@ -44,7 +45,9 @@ class MePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final userP = context.watch<UserProvider>();
     final settingsP = context.watch<SettingsProvider>();
-    final notification = context.read<NotificationLocalService>();
+    final NotificationService notification =
+        context.read<NotificationService?>() ??
+        context.read<NotificationLocalService>();
 
     final user = userP.currentUser;
     final avatarFile = settingsP.avatarFile;

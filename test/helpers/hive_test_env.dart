@@ -23,6 +23,7 @@ int _envRefCount = 0;
 
 /// Hive 2.2.3 没有 Hive.boxNames，所以我们自己追踪 test 中打开过的 boxes。
 final Set<String> _openedBoxNames = <String>{};
+bool _boxesPrepared = false;
 
 /// ---------------------------------------------------------------------------
 /// ✅ 新增：tests 正在用的 API（HiveTestEnv.setUp/tearDown）
@@ -32,30 +33,15 @@ class HiveTestEnv {
     _envRefCount += 1;
 
     await ensureHiveReady();
-
-    // ✅ tests 里会直接 Hive.box(...)，所以必须提前 open 固定 boxes
-    await openTestBox<Goal>(AppBoxes.goal);
-    await openTestBox<SubGoal>(AppBoxes.subGoal);
-    await openTestBox<Task>(AppBoxes.task);
-    await openTestBox<DailyLog>(AppBoxes.dailyLog);
-    await openTestBox<AppUser>(AppBoxes.user);
+    await prepareHiveBoxes();
   }
 
   static Future<void> tearDown() async {
     // ✅ 幂等：多次 tearDown 不会把 refCount 弄成负数
     if (_envRefCount > 0) _envRefCount -= 1;
 
-    // ✅ 不是最后一个使用者：只清空，不 close / delete（避免中途把后续测试环境掀掉）
-    if (_envRefCount > 0) {
-      await clearHiveBoxes();
-      return;
-    }
-
-    // ✅ 最后一个：真正释放资源，但必须“永不阻塞”
-    final dir = _hiveTestDir;
-    if (dir != null) {
-      await disposeHiveTest(dir);
-    }
+    // ✅ 统一只做 clear，避免在测试体内 close/reopen Hive 触发阻塞
+    await clearHiveBoxes();
   }
 }
 
@@ -94,6 +80,18 @@ Future<Box<T>> openTestBox<T>(String name) async {
   _openedBoxNames.add(name);
   if (Hive.isBoxOpen(name)) return Hive.box<T>(name);
   return Hive.openBox<T>(name);
+}
+
+Future<void> prepareHiveBoxes() async {
+  if (_boxesPrepared) return;
+
+  await openTestBox<Goal>(AppBoxes.goal);
+  await openTestBox<SubGoal>(AppBoxes.subGoal);
+  await openTestBox<Task>(AppBoxes.task);
+  await openTestBox<DailyLog>(AppBoxes.dailyLog);
+  await openTestBox<AppUser>(AppBoxes.user);
+
+  _boxesPrepared = true;
 }
 
 /// ---------------------------------------------------------------------------
@@ -167,6 +165,7 @@ Future<void> disposeHiveTest(Directory dir) async {
     _hiveTestDir = null;
     _hiveInited = false;
     _openedBoxNames.clear();
+    _boxesPrepared = false;
     _envRefCount = 0;
   }
 }

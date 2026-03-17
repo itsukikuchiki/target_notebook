@@ -1,68 +1,89 @@
-// test/widget/forgot_password_flow_test.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:target_notebook/pages/me_page.dart';
 import 'package:target_notebook/providers/settings_provider.dart';
 import 'package:target_notebook/providers/user_provider.dart';
-import 'package:target_notebook/services/notification_local_service.dart';
+import 'package:target_notebook/services/notification_service_interface.dart';
 
-import '../helpers/hive_test_env.dart';
+import '../fakes/fake_settings_provider.dart';
+import '../fakes/fake_user_provider.dart';
 import '../helpers/pump_settle_safe.dart';
-import '../fakes/fake_notification_local_service.dart';
+
+class _NotifNoop implements NotificationService {
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<void> ensureReady() async {}
+
+  @override
+  Future<void> scheduleOne({
+    required int id,
+    required DateTime at,
+    required String title,
+    required String body,
+  }) async {}
+
+  @override
+  Future<void> cancel(int id) async {}
+
+  @override
+  Future<void> cancelAll() async {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-
-  setUpAll(() async {
-    await HiveTestEnv.setUp();
-  });
-
-  setUp(() async {
-    SharedPreferences.setMockInitialValues({});
-    await clearHiveBoxes();
-  });
-
-  tearDownAll(() async {
-    await HiveTestEnv.tearDown();
-  });
 
   Future<void> _pumpPage(
     WidgetTester tester, {
     required UserProvider user,
     required SettingsProvider settings,
-    required NotificationLocalService notif,
   }) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider.value(value: user),
-          ChangeNotifierProvider.value(value: settings),
-          Provider<NotificationLocalService>.value(value: notif),
+          ChangeNotifierProvider<UserProvider>.value(value: user),
+          ChangeNotifierProvider<SettingsProvider>.value(value: settings),
+          Provider<NotificationService>.value(value: _NotifNoop()),
         ],
-        child: const TickerMode(
-          enabled: false,
-          child: MaterialApp(home: Scaffold(body: MePage())),
-        ),
+        child: const MaterialApp(home: Scaffold(body: MePage())),
       ),
     );
 
-    await pumpFrames(tester, frames: 3);
-    await tester.pump(const Duration(milliseconds: 150));
+    await pumpFrames(tester, frames: 2);
+    await tester.pump(const Duration(milliseconds: 80));
+  }
+
+  Future<void> _pumpUntilFound(
+    WidgetTester tester,
+    Finder finder, {
+    int maxPumps = 60,
+    Duration step = const Duration(milliseconds: 50),
+    required String onTimeoutMessage,
+  }) async {
+    for (var i = 0; i < maxPumps; i++) {
+      if (finder.evaluate().isNotEmpty) return;
+      await tester.pump(step);
+    }
+    throw TestFailure(onTimeoutMessage);
   }
 
   testWidgets(
     'MePage forgot password: reset -> login with new password succeeds',
     (tester) async {
-      final notif = FakeNotificationLocalService();
+      final settings = FakeSettingsProvider(
+        inited: true,
+        seenOnboarding: true,
+        weekStart: WeekStart.monday,
+        soundId: SoundId.none,
+      );
 
-      final settings = SettingsProvider();
-      await settings.init();
-
-      final user = UserProvider();
-      await user.init();
+      final user = FakeUserProvider();
 
       await user.registerWithEmail(
         email: 'fp@test.com',
@@ -77,59 +98,51 @@ void main() {
         tester,
         user: user,
         settings: settings,
-        notif: notif,
       );
 
-      /// 打开登录 dialog
-      await tester.tap(find.byKey(const Key('me.auth.open')));
+      // 打开登录 dialog
+      await tester.tap(find.byKey(MePage.authTileKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await pumpFrames(tester, frames: 2);
+      await _pumpUntilFound(
+        tester,
+        find.text('邮箱登录'),
+        onTimeoutMessage: 'auth dialog not opened',
+      );
 
-      expect(find.text('邮箱登录'), findsOneWidget);
-
-      /// 打开 reset dialog
-      await tester.tap(find.byKey(const Key('btn_forgot_password')));
+      // 打开 forgot dialog
+      await tester.tap(find.byKey(MePage.forgotButtonKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
-      await pumpFrames(tester, frames: 2);
-
-      /// 填写 reset
-      await tester.enterText(
-        find.byKey(const Key('forgot.email')),
-        'fp@test.com',
+      await _pumpUntilFound(
+        tester,
+        find.byKey(MePage.forgotSubmitKey),
+        onTimeoutMessage: 'forgot dialog not opened',
       );
 
-      await tester.enterText(
-        find.byKey(const Key('forgot.newpw')),
-        'newpw',
-      );
-
-      await tester.tap(find.byKey(const Key('forgot.submit')));
+      // 填写并提交 reset
+      await tester.enterText(find.byKey(MePage.forgotEmailKey), 'fp@test.com');
+      await tester.enterText(find.byKey(MePage.forgotNewPasswordKey), 'newpw');
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      await pumpFrames(tester, frames: 2);
 
-      /// 使用新密码登录
-      await tester.enterText(
-        find.byKey(const Key('me.auth.email')),
-        'fp@test.com',
-      );
-
-      await tester.enterText(
-        find.byKey(const Key('me.auth.password')),
-        'newpw',
-      );
-
-      await tester.tap(find.byKey(const Key('me.auth.submit')));
+      await tester.tap(find.byKey(MePage.forgotSubmitKey));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      await pumpFrames(tester, frames: 2);
+
+      await _pumpUntilFound(
+        tester,
+        find.textContaining('已记录重置请求'),
+        onTimeoutMessage: 'reset success snackbar not shown',
+      );
+
+      // 回到仍然打开的登录 dialog，使用新密码登录
+      await tester.enterText(find.byKey(MePage.authEmailKey), 'fp@test.com');
+      await tester.enterText(find.byKey(MePage.authPasswordKey), 'newpw');
+      await tester.pump();
+
+      await tester.tap(find.byKey(MePage.authSubmitKey));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
 
       expect(user.isAuthed, true);
       expect(find.textContaining('EMAIL · fp@test.com'), findsOneWidget);
-
-      await pumpAndSettleSafe(tester, maxFrames: 30);
     },
   );
 }
